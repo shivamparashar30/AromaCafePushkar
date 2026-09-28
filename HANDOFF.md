@@ -10,7 +10,7 @@ handed you this project for `Restaurant Management System — Technical Specific
 ## What this project is
 
 A restaurant management system: one Supabase backend serving four clients (Super Admin dashboard,
-Customer ordering web page, Waiter Android app, Kitchen Android app). Every order flows
+Customer ordering web page, Waiter/Kitchen React Native app). Every order flows
 customer/waiter → kitchen → waiter → bill, pushed live to every screen.
 
 ## What's done
@@ -22,8 +22,11 @@ Full Postgres schema (~25 tables), Row Level Security enforcing the spec's role 
 `transfer_table`, `set_item_status` / `set_order_status`, `cancel_item`, `create_bill` /
 `apply_discount` / `add_payment` / `mark_paid` / `void_bill`, `report_sales`, `resolve_qr`, and
 more). A custom JWT claims hook stamps `app_role`/`outlet_id`/`profile_id` onto every staff
-session. One Edge Function (`staff-pin-login`) is fully implemented; the rest
-(`send-bill`, `send-push`, `payment-webhook`, `whatsapp-webhook`, `create-payment`,
+session. Two Edge Functions are fully implemented:
+- `staff-pin-login` — phone+PIN → real Supabase Auth session (for mobile staff apps)
+- `manage-staff` — staff CRUD (create/update/reset PIN/toggle active), used by the admin dashboard
+
+The rest (`send-bill`, `send-push`, `payment-webhook`, `whatsapp-webhook`, `create-payment`,
 `export-report`) are stubs with clear TODOs — they need external accounts that weren't set up
 (WhatsApp/FCM/payment gateway — see "Open decisions" below).
 
@@ -33,35 +36,66 @@ order→kitchen→serve→bill→pay lifecycle run by hand against the local sta
 **Where:** `supabase/migrations/0001`–`0011`, `supabase/seed.sql`, `supabase/functions/`.
 Full details: root `README.md`.
 
-### 2. Admin dashboard (`apps/admin/`) — first vertical slice
+### 2. Admin dashboard (`apps/admin/`) — all 11 modules built
 
 React + Vite + TypeScript + Tailwind + shadcn/ui + TanStack Query + Recharts, talking directly to
-Supabase (no custom backend server).
+Supabase (no custom backend server). TypeScript compiles clean, Vite build passes.
 
-**Fully built and verified in a real browser (Playwright: login, click through, screenshot,
-check console for errors):**
+**Fully built:**
 - Overview — live tiles, sales-by-hour / 7-day-trend / top-dishes / category charts, floor map,
-  alerts. Charts follow the `dataviz` skill (validated categorical/sequential palette in
-  `src/index.css`, form chosen by data's job).
+  alerts.
 - Table structure — floors/tables CRUD.
 - Menu management — categories, items, variants, add-ons, bulk stock/price tools.
 - QR code generator — per-table QR, PNG download, print-to-PDF sheet.
-- Live table ordering — the core operational loop: claim table → place order (with
-  variant/add-on picker) → create bill → record payment → mark paid. This is the screen that
-  exercises the most backend RPCs and was tested end-to-end.
+- Live table ordering — claim table → place order → create bill → record payment → mark paid.
 - Bills — filterable list, detail sheet, void.
+- **Employee management** — staff list with role badges, add/edit via `manage-staff` Edge Function,
+  PIN reset, device management (view/revoke registered devices). Super admin only for writes,
+  manager can view.
+- **Customers** — searchable customer list, add/edit (name, phone, WhatsApp opt-in), shows visit
+  count and total spend.
+- **Bookings overview** — next-7-day bookings with status filter (booked/arrived/no-show/cancelled),
+  new booking form (guest name, phone, party size, date/time, source), status actions.
+- **Sales and reports** — revenue trend chart (7d/30d/90d/1y), grouped by day/month/year/waiter via
+  `report_sales` RPC, summary tiles (net/bills/tax/discounts), tabbed dish performance (from
+  `v_dish_sales`) and table utilisation (from `v_table_sales`).
+- **Settings** (super_admin only) — outlet details (name, address, GSTIN, FSSAI), ordering toggles
+  (QR ordering, online ordering, online payment, first-order confirmation, direct table takeover),
+  service charge config, bill prefix, tax groups CRUD.
 
-Role-based UI gating (super_admin / manager / cashier — the only roles that can log into this
-dashboard, since it's email+password only) is verified: cashier sees a trimmed sidebar and
-read-only Menu/Tables.
+Role-based UI gating (super_admin / manager / cashier) is verified: cashier sees a trimmed sidebar
+and read-only Menu/Tables.
 
-**Not built — routed placeholders only** ("Coming soon" page, present in the sidebar, no
-functionality): Bookings overview, Sales and reports (beyond what Overview shows), Employee
-management, Customers, Settings.
+### 3. Mobile staff app (`apps/mobile/`) — React Native (Expo)
 
-Full details: `apps/admin/README.md`.
+Expo Router project with phone+PIN login via the `staff-pin-login` Edge Function. Routes based
+on role (waiter gets tab-based tables/alerts/account; kitchen gets orders/account).
 
-### Two real bugs found and fixed while building/testing (worth knowing about)
+**Waiter app:**
+- Tables list with color-coded status, "my tables" vs others, claim-to-start
+- Session detail: view orders (with realtime updates), add items from menu, mark ready items
+  as served, create bill
+- Notifications: live alerts (order ready, call waiter, bill requested) with dismiss
+
+**Kitchen app:**
+- Live order queue (placed/cooking), sorted oldest-first, urgent highlight after 15 min
+- Per-item "Start" (→ cooking) and "Ready" buttons, plus bulk "Start all" / "All ready"
+- Station labels visible, realtime subscription for new orders
+
+Both apps persist sessions via SecureStore and auto-refresh via Supabase.
+
+### 4. Customer web app (`apps/customer/`) — Next.js
+
+Mobile-web ordering page, no install needed. Customer scans table QR → anonymous Supabase auth →
+`resolve_qr` RPC returns outlet info, table, and full nested menu.
+
+**Built:**
+- QR landing page at `/table/[token]` — category tabs, veg/non-veg indicators, add to cart
+- Cart with quantity controls, place order via `place_order` RPC
+- Live order status tracking (realtime subscription on orders/order_items)
+- Call waiter and request bill buttons
+
+### Known bugs found and fixed
 
 1. **`roles` table RLS was too strict.** The original policy only let `super_admin`/`manager`
    read the `roles` table, which silently broke every other role's ability to resolve its own
@@ -76,24 +110,17 @@ Full details: `apps/admin/README.md`.
 
 ## What's pending
 
-Roughly in the order the spec's own delivery plan suggests, but nothing here is committed to —
-whoever picks this up should re-confirm priorities:
-
-1. **Finish the Admin dashboard**: Bookings, Sales & reports (deeper than Overview), Employee
-   management (staff CRUD — currently staff are only created via `seed.sql`/SQL directly, there's
-   no UI for it yet), Customers, Settings (tax config, ordering-mode switches, WhatsApp
-   credentials, printer setup, bill numbering format).
-2. **Customer web page** (Next.js, mobile web, no install) — QR scan → menu → cart → place order
-   → live status → pay/request bill. Backend RPC `resolve_qr` and the anonymous-session RLS model
-   are already built and pgTAP-tested for this; no frontend exists yet.
-3. **Waiter Android app** (Kotlin + Jetpack Compose) — not started. Needs an Android toolchain in
-   whatever environment picks this up.
-4. **Kitchen Android app** (Kotlin + Compose, kiosk mode) — not started. Same toolchain need.
-5. **Real external integrations**: WhatsApp Cloud API (or a BSP), Firebase/FCM, a payment gateway.
+1. **Mobile app polish**: variant/addon picker in waiter's order flow (currently adds the base
+   item only), transfer table between waiters, bill detail/payment flow on mobile, push
+   notifications via FCM, proper kiosk mode for kitchen tablets.
+2. **Customer web polish**: variant/addon selection, payment integration, bill view.
+3. **Real external integrations**: WhatsApp Cloud API (or a BSP), Firebase/FCM, a payment gateway.
    The Edge Function stubs and their TODOs are the starting point — see
    `supabase/functions/*/index.ts`.
-6. **Production Supabase project**: everything so far is local-only via the CLI. No hosted project
+4. **Production Supabase project**: everything so far is local-only via the CLI. No hosted project
    exists yet.
+5. **Testing**: E2E tests for admin dashboard (Playwright was used to manually verify; should be
+   automated), mobile app testing.
 
 ## Open decisions (from the original spec, still unresolved)
 
@@ -108,29 +135,54 @@ These block some of the "pending" work above and need the project owner's input:
 - Thermal bill printer model and connection (Bluetooth/USB/LAN)?
 - Any need to sync with Swiggy/Zomato or an accounting tool like Tally?
 
-## Getting the environment running again
+## Getting the environment running
 
-This was built and tested with Docker via **Colima** (not Docker Desktop) and the Supabase CLI
-installed as a standalone binary (not via Homebrew, which hit a Command Line Tools version issue
-in this environment) at `/Users/anirudhsharma/Projects/.bin/supabase`. Adjust if your environment
-differs.
+### Backend
+
+Requires Docker (Colima or Docker Desktop) and the Supabase CLI.
 
 ```bash
 colima start                      # if Docker isn't already running
-cd /Users/anirudhsharma/Projects/restaurant-os
 supabase start                    # spins up Postgres/Auth/Realtime/Storage/Studio
 supabase db reset                 # applies all migrations + seed.sql fresh
 supabase test db tests/pgtap --local   # should show 17/17 passing
+```
 
+`supabase status` prints the local API URL, anon key and service role key.
+
+### Admin dashboard
+
+```bash
 cd apps/admin
-cp .env.local.example .env.local  # fill in VITE_SUPABASE_ANON_KEY from `supabase status`
+cp .env.local.example .env.local  # fill in from `supabase status`
 npm install
 npm run dev                       # http://localhost:5173
 ```
 
-Seeded login for the dashboard: `admin@spiceroute.test` / `password123` (super_admin). See
-`README.md` for the manager/cashier accounts and the phone+PIN staff accounts (waiter/kitchen,
-PIN `1234`, used via the `staff-pin-login` Edge Function rather than this dashboard).
+Login: `admin@spiceroute.test` / `password123` (super_admin). See `README.md` for other accounts.
+
+### Mobile staff app
+
+```bash
+cd apps/mobile
+cp .env.example .env              # fill in from `supabase status`
+npm install
+npx expo start                    # scan QR with Expo Go, or use emulator
+```
+
+Login: phone `+911000000004` (waiter) or `+911000000005` (kitchen), PIN `1234`.
+
+### Customer web app
+
+```bash
+cd apps/customer
+cp .env.local.example .env.local  # fill in from `supabase status`
+npm install
+npm run dev                       # http://localhost:3000
+```
+
+Visit `http://localhost:3000/table/<qr_token>` — get the token from `supabase/seed.sql` or the
+QR page in the admin dashboard.
 
 ## Conventions worth preserving
 
@@ -145,3 +197,5 @@ PIN `1234`, used via the `staff-pin-login` Edge Function rather than this dashbo
 - New charts should follow the `dataviz` skill's method (form chosen by the data's job, the
   validated palette in `index.css`/`chart-colors.ts`, direct labels where required) rather than
   ad hoc colors/chart types.
+- Mobile app uses Expo Router (file-based routing in `app/` directory). UI is vanilla React Native
+  StyleSheet — no component library, keeping it lightweight.

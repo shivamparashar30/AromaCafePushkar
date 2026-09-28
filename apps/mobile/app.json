@@ -1,0 +1,14 @@
+{
+  "expo": {
+    "name": "Restro Staff",
+    "slug": "restro-mobile",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "scheme": "restro",
+    "platforms": ["android", "ios"],
+    "plugins": ["expo-router", "expo-secure-store"],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}

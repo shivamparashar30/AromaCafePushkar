@@ -9,11 +9,13 @@
 :root {
   --bg: #fafafa;
   --card: #ffffff;
-  --text: #111111;
+  --text: #1a1a1a;
   --muted: #888888;
-  --border: #e5e5e5;
-  --accent: #111111;
+  --border: #e8e8e8;
+  --accent: #E8713A;
   --accent-text: #ffffff;
+  --accent-light: #FFF7F2;
+  --accent-border: #FDDCC8;
   --success: #22c55e;
   --warning: #f59e0b;
 }

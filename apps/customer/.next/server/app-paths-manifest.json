@@ -1,0 +1,4 @@
+{
+  "/table/[token]/page": "app/table/[token]/page.js",
+  "/page": "app/page.js"
+}

@@ -12,12 +12,15 @@ export interface SessionDetail {
     status: string
     guest_count: number | null
     opened_at: string
+    customer_name: string | null
+    customer_phone: string | null
   } | null
   table: { id: string; name: string; status: string }
   orders: {
     id: string
     kot_number: number
     source: string
+    placed_by_name: string | null
     status: string
     created_at: string
     items: {
@@ -55,7 +58,7 @@ export async function fetchSessionDetail(tableId: string): Promise<SessionDetail
 
   const { data: session, error: sErr } = await supabase
     .from('table_sessions')
-    .select('id, table_id, waiter_id, status, guest_count, opened_at')
+    .select('id, table_id, waiter_id, status, guest_count, opened_at, customer_name, customer_phone')
     .eq('table_id', tableId)
     .eq('status', 'open')
     .maybeSingle()
@@ -68,7 +71,7 @@ export async function fetchSessionDetail(tableId: string): Promise<SessionDetail
   const { data: orders, error: oErr } = await supabase
     .from('orders')
     .select(
-      `id, kot_number, source, status, created_at,
+      `id, kot_number, source, placed_by_name, status, created_at,
        order_items(id, qty, unit_price, notes, status,
          menu_items(name), item_variants(name),
          order_item_addons(addons(name)))`,
@@ -102,6 +105,7 @@ export async function fetchSessionDetail(tableId: string): Promise<SessionDetail
       id: o.id,
       kot_number: o.kot_number,
       source: o.source,
+      placed_by_name: o.placed_by_name ?? null,
       status: o.status,
       created_at: o.created_at,
       items: o.order_items.map((oi) => ({

@@ -28,7 +28,7 @@ function orderingUrl(domain: string, token: string): string {
 export function QrPage() {
   const queryClient = useQueryClient()
   const { data: floors, isLoading } = useQuery({ queryKey: FLOORS_KEY, queryFn: fetchFloors })
-  const [domain, setDomain] = useState('spiceroute.example')
+  const [domain, setDomain] = useState('aromacafepushkar.example')
   const printRef = useRef<HTMLDivElement>(null)
 
   const regenerateMutation = useMutation({
@@ -65,21 +65,21 @@ export function QrPage() {
         }
       `}</style>
 
-      <div className="flex items-end justify-between print:hidden">
+      <div className="flex flex-wrap items-end justify-between gap-3 print:hidden">
         <div>
-          <h1 className="text-2xl font-semibold">QR code generator</h1>
+          <h1 className="text-xl font-semibold sm:text-2xl">QR code generator</h1>
           <p className="text-sm text-muted-foreground">
             One unique QR per table, encoding a signed order link.
           </p>
         </div>
-        <div className="flex items-end gap-2">
+        <div className="flex flex-wrap items-end gap-2">
           <div className="space-y-1">
             <Label htmlFor="domain" className="text-xs">
               Ordering domain
             </Label>
-            <Input id="domain" className="w-56" value={domain} onChange={(e) => setDomain(e.target.value)} />
+            <Input id="domain" className="w-full sm:w-56" value={domain} onChange={(e) => setDomain(e.target.value)} />
           </div>
-          <Button onClick={printAll}>Print all (PDF sheet)</Button>
+          <Button className="w-full sm:w-auto" onClick={printAll}>Print all (PDF sheet)</Button>
         </div>
       </div>
 

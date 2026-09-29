@@ -6,12 +6,19 @@
   justify-content: center;
   padding: 24px;
   text-align: center;
+  background: #fff;
+}
+
+.logo {
+  font-size: 48px;
+  margin-bottom: 16px;
 }
 
 .title {
   font-size: 28px;
   font-weight: 700;
   margin-bottom: 8px;
+  color: var(--text);
 }
 
 .subtitle {

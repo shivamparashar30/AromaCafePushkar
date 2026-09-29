@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "Restro Staff",
+    "name": "Aroma Cafe Pushkar",
     "slug": "restro-mobile",
     "version": "0.1.0",
     "orientation": "portrait",
@@ -9,6 +9,9 @@
       "android",
       "ios"
     ],
+    "splash": {
+      "backgroundColor": "#FFFFFF"
+    },
     "plugins": [
       "expo-router",
       "expo-secure-store",
@@ -18,7 +21,15 @@
       "typedRoutes": true
     },
     "android": {
-      "package": "com.neshama.restromobile"
+      "package": "com.neshama.restromobile",
+      "splash": {
+        "backgroundColor": "#FFFFFF"
+      }
+    },
+    "ios": {
+      "splash": {
+        "backgroundColor": "#FFFFFF"
+      }
     }
   }
 }

@@ -59,14 +59,14 @@ export function ReportsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-start justify-between">
+      <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold">Sales and reports</h1>
+          <h1 className="text-xl font-semibold sm:text-2xl">Sales and reports</h1>
           <p className="text-sm text-muted-foreground">Revenue breakdown, dish performance, table utilisation.</p>
         </div>
         <div className="flex gap-2">
           <Select value={preset} onValueChange={setPreset}>
-            <SelectTrigger className="w-28"><SelectValue /></SelectTrigger>
+            <SelectTrigger className="w-24 sm:w-28"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="7d">7 days</SelectItem>
               <SelectItem value="30d">30 days</SelectItem>
@@ -75,7 +75,7 @@ export function ReportsPage() {
             </SelectContent>
           </Select>
           <Select value={groupBy} onValueChange={(v) => setGroupBy(v as GroupBy)}>
-            <SelectTrigger className="w-28"><SelectValue /></SelectTrigger>
+            <SelectTrigger className="w-24 sm:w-28"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="day">By day</SelectItem>
               <SelectItem value="month">By month</SelectItem>
@@ -156,15 +156,15 @@ export function ReportsPage() {
             <CardHeader>
               <CardTitle className="text-base">Breakdown</CardTitle>
             </CardHeader>
-            <CardContent>
+            <CardContent className="overflow-x-auto">
               <Table>
                 <TableHeader>
                   <TableRow>
                     <TableHead>{groupBy === 'waiter' ? 'Waiter' : 'Period'}</TableHead>
                     <TableHead className="text-right">Bills</TableHead>
-                    <TableHead className="text-right">Gross</TableHead>
-                    <TableHead className="text-right">Discounts</TableHead>
-                    <TableHead className="text-right">Tax</TableHead>
+                    <TableHead className="text-right hidden sm:table-cell">Gross</TableHead>
+                    <TableHead className="text-right hidden sm:table-cell">Discounts</TableHead>
+                    <TableHead className="text-right hidden sm:table-cell">Tax</TableHead>
                     <TableHead className="text-right">Net</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -173,9 +173,9 @@ export function ReportsPage() {
                     <TableRow key={r.bucket}>
                       <TableCell className="font-medium">{r.bucket}</TableCell>
                       <TableCell className="text-right">{r.bills}</TableCell>
-                      <TableCell className="text-right">{formatMoney(r.gross)}</TableCell>
-                      <TableCell className="text-right">{formatMoney(r.discounts)}</TableCell>
-                      <TableCell className="text-right">{formatMoney(r.tax)}</TableCell>
+                      <TableCell className="text-right hidden sm:table-cell">{formatMoney(r.gross)}</TableCell>
+                      <TableCell className="text-right hidden sm:table-cell">{formatMoney(r.discounts)}</TableCell>
+                      <TableCell className="text-right hidden sm:table-cell">{formatMoney(r.tax)}</TableCell>
                       <TableCell className="text-right">{formatMoney(r.net)}</TableCell>
                     </TableRow>
                   ))}
@@ -197,7 +197,7 @@ export function ReportsPage() {
             <CardHeader>
               <CardTitle className="text-base">Dish performance</CardTitle>
             </CardHeader>
-            <CardContent>
+            <CardContent className="overflow-x-auto">
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -234,7 +234,7 @@ export function ReportsPage() {
             <CardHeader>
               <CardTitle className="text-base">Table utilisation</CardTitle>
             </CardHeader>
-            <CardContent>
+            <CardContent className="overflow-x-auto">
               <Table>
                 <TableHeader>
                   <TableRow>

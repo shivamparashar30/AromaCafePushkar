@@ -80,9 +80,9 @@ export function BookingsPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-start justify-between">
+      <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
-          <h1 className="text-2xl font-semibold">Bookings overview</h1>
+          <h1 className="text-xl font-semibold sm:text-2xl">Bookings overview</h1>
           <p className="text-sm text-muted-foreground">Reservations for the next 7 days.</p>
         </div>
         {canEdit && (
@@ -105,68 +105,70 @@ export function BookingsPage() {
         </Select>
       </div>
 
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Name</TableHead>
-            <TableHead>Phone</TableHead>
-            <TableHead className="text-right">Party size</TableHead>
-            <TableHead>Date & time</TableHead>
-            <TableHead>Source</TableHead>
-            <TableHead>Status</TableHead>
-            {canEdit && <TableHead />}
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {bookings.map((b) => (
-            <TableRow key={b.id}>
-              <TableCell className="font-medium">{b.name}</TableCell>
-              <TableCell>{b.phone}</TableCell>
-              <TableCell className="text-right">{b.party_size}</TableCell>
-              <TableCell>{new Date(b.starts_at).toLocaleString()}</TableCell>
-              <TableCell>
-                <Badge variant="outline">{b.source.replace('_', ' ')}</Badge>
-              </TableCell>
-              <TableCell>
-                <Badge variant={STATUS_VARIANT[b.status]}>{b.status.replace('_', ' ')}</Badge>
-              </TableCell>
-              {canEdit && (
-                <TableCell className="space-x-1 text-right">
-                  {b.status === 'booked' && (
-                    <>
-                      <Button
-                        variant="link" size="sm" className="h-auto p-0"
-                        onClick={() => statusMutation.mutate({ id: b.id, s: 'arrived' })}
-                      >
-                        Arrived
-                      </Button>
-                      <Button
-                        variant="link" size="sm" className="h-auto p-0"
-                        onClick={() => statusMutation.mutate({ id: b.id, s: 'no_show' })}
-                      >
-                        No show
-                      </Button>
-                      <Button
-                        variant="link" size="sm" className="h-auto p-0 text-destructive"
-                        onClick={() => statusMutation.mutate({ id: b.id, s: 'cancelled' })}
-                      >
-                        Cancel
-                      </Button>
-                    </>
-                  )}
-                </TableCell>
-              )}
-            </TableRow>
-          ))}
-          {bookings.length === 0 && (
+      <div className="overflow-x-auto">
+        <Table>
+          <TableHeader>
             <TableRow>
-              <TableCell colSpan={7} className="text-center text-sm text-muted-foreground">
-                No bookings found.
-              </TableCell>
+              <TableHead>Name</TableHead>
+              <TableHead className="hidden sm:table-cell">Phone</TableHead>
+              <TableHead className="text-right hidden sm:table-cell">Party size</TableHead>
+              <TableHead>Date & time</TableHead>
+              <TableHead className="hidden md:table-cell">Source</TableHead>
+              <TableHead>Status</TableHead>
+              {canEdit && <TableHead />}
             </TableRow>
-          )}
-        </TableBody>
-      </Table>
+          </TableHeader>
+          <TableBody>
+            {bookings.map((b) => (
+              <TableRow key={b.id}>
+                <TableCell className="font-medium">{b.name}</TableCell>
+                <TableCell className="hidden sm:table-cell">{b.phone}</TableCell>
+                <TableCell className="text-right hidden sm:table-cell">{b.party_size}</TableCell>
+                <TableCell className="whitespace-nowrap">{new Date(b.starts_at).toLocaleString()}</TableCell>
+                <TableCell className="hidden md:table-cell">
+                  <Badge variant="outline">{b.source.replace('_', ' ')}</Badge>
+                </TableCell>
+                <TableCell>
+                  <Badge variant={STATUS_VARIANT[b.status]}>{b.status.replace('_', ' ')}</Badge>
+                </TableCell>
+                {canEdit && (
+                  <TableCell className="space-x-1 text-right">
+                    {b.status === 'booked' && (
+                      <>
+                        <Button
+                          variant="link" size="sm" className="h-auto p-0"
+                          onClick={() => statusMutation.mutate({ id: b.id, s: 'arrived' })}
+                        >
+                          Arrived
+                        </Button>
+                        <Button
+                          variant="link" size="sm" className="h-auto p-0"
+                          onClick={() => statusMutation.mutate({ id: b.id, s: 'no_show' })}
+                        >
+                          No show
+                        </Button>
+                        <Button
+                          variant="link" size="sm" className="h-auto p-0 text-destructive"
+                          onClick={() => statusMutation.mutate({ id: b.id, s: 'cancelled' })}
+                        >
+                          Cancel
+                        </Button>
+                      </>
+                    )}
+                  </TableCell>
+                )}
+              </TableRow>
+            ))}
+            {bookings.length === 0 && (
+              <TableRow>
+                <TableCell colSpan={7} className="text-center text-sm text-muted-foreground">
+                  No bookings found.
+                </TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+      </div>
 
       <BookingFormDialog
         open={formOpen}

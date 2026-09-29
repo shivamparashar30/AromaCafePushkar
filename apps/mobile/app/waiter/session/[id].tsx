@@ -26,6 +26,10 @@ import {
 import { supabase } from '../../../src/lib/supabase'
 import type { MenuItem, Order } from '../../../src/lib/types'
 
+const ORANGE = '#E8713A'
+const ORANGE_LIGHT = '#FFF7F2'
+const ORANGE_BORDER = '#FDDCC8'
+
 export default function SessionScreen() {
   const { id: sessionId } = useLocalSearchParams<{ id: string }>()
   const { profile } = useAuth()
@@ -200,10 +204,10 @@ export default function SessionScreen() {
       <View style={[styles.container, { paddingTop: statusBarHeight }]}>
         <Stack.Screen options={{ headerShown: false }} />
 
-        {/* Header */}
+        {/* Header with orange accent */}
         <View style={styles.menuHeader}>
           <Pressable onPress={() => setShowMenu(false)} style={styles.menuBackBtn}>
-            <Ionicons name="arrow-back" size={22} color="#111" />
+            <Ionicons name="arrow-back" size={22} color={ORANGE} />
           </Pressable>
           <Text style={styles.menuTitle}>Add items</Text>
           <View style={{ width: 36 }} />
@@ -211,18 +215,18 @@ export default function SessionScreen() {
 
         {/* Search */}
         <View style={styles.searchBar}>
-          <Ionicons name="search" size={18} color="#9ca3af" />
+          <Ionicons name="search" size={18} color="#bbb" />
           <TextInput
             style={styles.searchInput}
             placeholder="Search menu..."
-            placeholderTextColor="#bbb"
+            placeholderTextColor="#c4c4c4"
             value={search}
             onChangeText={setSearch}
             autoCorrect={false}
           />
           {search.length > 0 && (
             <Pressable onPress={() => setSearch('')} hitSlop={8}>
-              <Ionicons name="close-circle" size={18} color="#9ca3af" />
+              <Ionicons name="close-circle" size={18} color="#bbb" />
             </Pressable>
           )}
         </View>
@@ -254,7 +258,7 @@ export default function SessionScreen() {
           </ScrollView>
         </View>
 
-        {/* Cart summary bar — vertical, expandable, max height capped */}
+        {/* Cart summary bar */}
         {cart.length > 0 && (
           <View style={styles.cartSummary}>
             <Pressable style={styles.cartSummaryHeader} onPress={() => setCartExpanded(!cartExpanded)}>
@@ -266,7 +270,7 @@ export default function SessionScreen() {
                 <Ionicons
                   name={cartExpanded ? 'chevron-down' : 'chevron-up'}
                   size={16}
-                  color="#9ca3af"
+                  color="#fff9"
                 />
               </View>
             </Pressable>
@@ -279,11 +283,11 @@ export default function SessionScreen() {
                       <Text style={styles.cartRowPrice}>{formatPrice(c.item.price * c.qty)}</Text>
                       <View style={styles.cartRowControls}>
                         <Pressable onPress={() => decreaseCartItem(c.item.id)} hitSlop={6}>
-                          <Ionicons name="remove-circle" size={22} color="#ef4444" />
+                          <Ionicons name="remove-circle" size={22} color="#fff" />
                         </Pressable>
                         <Text style={styles.cartRowQty}>{c.qty}</Text>
                         <Pressable onPress={() => addToCart(c.item)} hitSlop={6}>
-                          <Ionicons name="add-circle" size={22} color="#22c55e" />
+                          <Ionicons name="add-circle" size={22} color="#fff" />
                         </Pressable>
                       </View>
                     </View>
@@ -294,7 +298,7 @@ export default function SessionScreen() {
           </View>
         )}
 
-        {/* Menu list — takes remaining space */}
+        {/* Menu list */}
         <FlatList
           style={{ flex: 1 }}
           data={filteredMenu}
@@ -302,7 +306,7 @@ export default function SessionScreen() {
           contentContainerStyle={{ paddingBottom: 20, paddingTop: 4 }}
           ListEmptyComponent={
             <View style={styles.emptyContainer}>
-              <Ionicons name="search-outline" size={40} color="#d1d5db" />
+              <Ionicons name="search-outline" size={40} color="#ddd" />
               <Text style={styles.emptyText}>No items found</Text>
             </View>
           }
@@ -321,11 +325,11 @@ export default function SessionScreen() {
                 {qty > 0 ? (
                   <View style={styles.qtyControls}>
                     <Pressable onPress={() => decreaseCartItem(item.id)} style={styles.qtyBtn}>
-                      <Ionicons name="remove" size={18} color="#111" />
+                      <Ionicons name="remove" size={18} color={ORANGE} />
                     </Pressable>
                     <Text style={styles.qtyText}>{qty}</Text>
                     <Pressable onPress={() => addToCart(item)} style={styles.qtyBtn}>
-                      <Ionicons name="add" size={18} color="#111" />
+                      <Ionicons name="add" size={18} color={ORANGE} />
                     </Pressable>
                   </View>
                 ) : (
@@ -375,7 +379,7 @@ export default function SessionScreen() {
           <Text style={styles.orderBtnText}>New order</Text>
         </Pressable>
         <Pressable style={styles.billBtn} onPress={handleCreateBill}>
-          <Ionicons name="receipt-outline" size={18} color="#fff" />
+          <Ionicons name="receipt-outline" size={18} color={ORANGE} />
           <Text style={styles.billBtnText}>Bill</Text>
         </Pressable>
         <Pressable style={styles.leaveBtn} onPress={handleLeaveTable}>
@@ -387,7 +391,7 @@ export default function SessionScreen() {
       <FlatList
         data={orders}
         keyExtractor={(o) => o.id}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={ORANGE} />}
         contentContainerStyle={styles.ordersList}
         renderItem={({ item: order }) => (
           <View style={styles.orderCard}>
@@ -396,18 +400,20 @@ export default function SessionScreen() {
                 <Text style={styles.kotLabel}>KOT #{order.kot_number}</Text>
                 <Text style={styles.orderTime}>
                   {new Date(order.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  {' · '}
+                  {order.source === 'customer' ? `Customer: ${order.placed_by_name || 'Guest'}` : order.placed_by_name ?? order.source}
                 </Text>
               </View>
               <View style={[
                 styles.orderStatusBadge,
                 order.status === 'placed' && { backgroundColor: '#dbeafe' },
-                order.status === 'cooking' && { backgroundColor: '#fef3c7' },
+                order.status === 'cooking' && { backgroundColor: '#FFF0E8' },
                 order.status === 'completed' && { backgroundColor: '#dcfce7' },
               ]}>
                 <Text style={[
                   styles.orderStatusText,
                   order.status === 'placed' && { color: '#1d4ed8' },
-                  order.status === 'cooking' && { color: '#b45309' },
+                  order.status === 'cooking' && { color: ORANGE },
                   order.status === 'completed' && { color: '#15803d' },
                 ]}>
                   {order.status}
@@ -432,7 +438,7 @@ export default function SessionScreen() {
                   <Text style={[
                     styles.itemStatus,
                     item.status === 'ready' && { color: '#22c55e', fontWeight: '700' },
-                    item.status === 'served' && { color: '#9ca3af' },
+                    item.status === 'served' && { color: '#999' },
                   ]}>
                     {item.status}
                   </Text>
@@ -449,7 +455,7 @@ export default function SessionScreen() {
         )}
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
-            <Ionicons name="restaurant-outline" size={48} color="#d1d5db" />
+            <Ionicons name="restaurant-outline" size={48} color="#ddd" />
             <Text style={styles.emptyText}>No orders yet</Text>
             <Text style={styles.emptySubtext}>Tap "New order" to start</Text>
           </View>
@@ -460,7 +466,7 @@ export default function SessionScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f8f9fa' },
+  container: { flex: 1, backgroundColor: '#fafafa' },
 
   // Action bar
   actionBar: {
@@ -478,9 +484,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
-    backgroundColor: '#111',
+    backgroundColor: ORANGE,
     paddingVertical: 10,
-    borderRadius: 10,
+    borderRadius: 12,
+    shadowColor: ORANGE,
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 3,
   },
   orderBtnText: { color: '#fff', fontSize: 14, fontWeight: '700' },
   billBtn: {
@@ -489,11 +500,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
-    backgroundColor: '#f59e0b',
+    backgroundColor: ORANGE_LIGHT,
+    borderWidth: 1,
+    borderColor: ORANGE_BORDER,
     paddingVertical: 10,
-    borderRadius: 10,
+    borderRadius: 12,
   },
-  billBtnText: { color: '#fff', fontSize: 14, fontWeight: '700' },
+  billBtnText: { color: ORANGE, fontSize: 14, fontWeight: '700' },
   leaveBtn: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -504,7 +517,7 @@ const styles = StyleSheet.create({
     borderColor: '#fecaca',
     paddingVertical: 10,
     paddingHorizontal: 12,
-    borderRadius: 10,
+    borderRadius: 12,
   },
   leaveBtnText: { color: '#ef4444', fontSize: 14, fontWeight: '700' },
 
@@ -514,7 +527,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     marginHorizontal: 12,
     marginVertical: 4,
-    borderRadius: 12,
+    borderRadius: 14,
     padding: 16,
     borderWidth: 1,
     borderColor: '#f0f0f0',
@@ -526,19 +539,19 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   orderHeaderLeft: {},
-  kotLabel: { fontSize: 15, fontWeight: '700', color: '#111' },
-  orderTime: { fontSize: 12, color: '#9ca3af', marginTop: 2 },
+  kotLabel: { fontSize: 15, fontWeight: '700', color: '#1a1a1a' },
+  orderTime: { fontSize: 12, color: '#999', marginTop: 2 },
   orderStatusBadge: {
     paddingHorizontal: 10,
     paddingVertical: 4,
-    borderRadius: 6,
-    backgroundColor: '#f3f4f6',
+    borderRadius: 8,
+    backgroundColor: '#f5f5f5',
   },
   orderStatusText: {
     fontSize: 12,
     fontWeight: '700',
     textTransform: 'capitalize',
-    color: '#666',
+    color: '#888',
   },
   orderItem: {
     flexDirection: 'row',
@@ -546,10 +559,10 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: '#f5f5f5',
   },
-  itemName: { fontSize: 14, fontWeight: '500', color: '#111' },
-  addonText: { fontSize: 12, color: '#9ca3af', marginTop: 2 },
-  noteText: { fontSize: 12, color: '#f59e0b', fontStyle: 'italic', marginTop: 2 },
-  itemStatus: { fontSize: 12, color: '#9ca3af', textTransform: 'capitalize' },
+  itemName: { fontSize: 14, fontWeight: '500', color: '#1a1a1a' },
+  addonText: { fontSize: 12, color: '#999', marginTop: 2 },
+  noteText: { fontSize: 12, color: ORANGE, fontStyle: 'italic', marginTop: 2 },
+  itemStatus: { fontSize: 12, color: '#999', textTransform: 'capitalize' },
   serveBtn: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -557,7 +570,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#22c55e',
     paddingHorizontal: 10,
     paddingVertical: 5,
-    borderRadius: 6,
+    borderRadius: 8,
     marginTop: 4,
   },
   serveBtnText: { color: '#fff', fontSize: 12, fontWeight: '700' },
@@ -577,11 +590,11 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: '#f3f4f6',
+    backgroundColor: ORANGE_LIGHT,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  menuTitle: { fontSize: 17, fontWeight: '700' },
+  menuTitle: { fontSize: 17, fontWeight: '700', color: '#1a1a1a' },
 
   // Search
   searchBar: {
@@ -592,15 +605,15 @@ const styles = StyleSheet.create({
     marginTop: 8,
     paddingHorizontal: 12,
     paddingVertical: 10,
-    borderRadius: 10,
+    borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#e5e7eb',
+    borderColor: '#e8e8e8',
     gap: 8,
   },
   searchInput: {
     flex: 1,
     fontSize: 15,
-    color: '#111',
+    color: '#1a1a1a',
     padding: 0,
   },
 
@@ -621,26 +634,26 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
     paddingVertical: 10,
     borderRadius: 20,
-    backgroundColor: '#f3f4f6',
+    backgroundColor: '#f5f5f5',
     borderWidth: 1,
-    borderColor: '#e5e7eb',
+    borderColor: '#e8e8e8',
   },
   categoryChipActive: {
-    backgroundColor: '#111',
-    borderColor: '#111',
+    backgroundColor: ORANGE,
+    borderColor: ORANGE,
   },
   categoryChipText: {
     fontSize: 13,
     fontWeight: '600',
-    color: '#6b7280',
+    color: '#777',
   },
   categoryChipTextActive: {
     color: '#fff',
   },
 
-  // Cart summary — vertical expandable
+  // Cart summary
   cartSummary: {
-    backgroundColor: '#111',
+    backgroundColor: ORANGE,
   },
   cartSummaryHeader: {
     flexDirection: 'row',
@@ -649,7 +662,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 10,
   },
-  cartSummaryCount: { color: '#9ca3af', fontSize: 13, fontWeight: '600' },
+  cartSummaryCount: { color: '#fff9', fontSize: 13, fontWeight: '600' },
   cartSummaryRight: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -667,13 +680,13 @@ const styles = StyleSheet.create({
   cartRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#1f2937',
-    borderRadius: 8,
+    backgroundColor: 'rgba(0,0,0,0.15)',
+    borderRadius: 10,
     paddingHorizontal: 12,
     paddingVertical: 8,
   },
   cartRowName: { flex: 1, color: '#fff', fontSize: 14, fontWeight: '500' },
-  cartRowPrice: { color: '#9ca3af', fontSize: 13, fontWeight: '600', marginRight: 12 },
+  cartRowPrice: { color: '#fff9', fontSize: 13, fontWeight: '600', marginRight: 12 },
   cartRowControls: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -689,34 +702,36 @@ const styles = StyleSheet.create({
     marginHorizontal: 12,
     marginVertical: 3,
     padding: 14,
-    borderRadius: 10,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: '#f0f0f0',
   },
   menuNameRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   foodDot: { width: 8, height: 8, borderRadius: 4 },
-  menuName: { fontSize: 15, fontWeight: '600', color: '#111' },
-  menuCategory: { fontSize: 12, color: '#9ca3af', marginTop: 2, marginLeft: 14 },
-  menuPrice: { fontSize: 14, fontWeight: '700', color: '#111', marginTop: 4, marginLeft: 14 },
+  menuName: { fontSize: 15, fontWeight: '600', color: '#1a1a1a' },
+  menuCategory: { fontSize: 12, color: '#999', marginTop: 2, marginLeft: 14 },
+  menuPrice: { fontSize: 14, fontWeight: '700', color: '#1a1a1a', marginTop: 4, marginLeft: 14 },
 
   // Quantity controls
   qtyControls: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#f3f4f6',
-    borderRadius: 8,
+    backgroundColor: ORANGE_LIGHT,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: ORANGE_BORDER,
     paddingHorizontal: 4,
     paddingVertical: 2,
   },
   qtyBtn: {
     padding: 6,
   },
-  qtyText: { fontSize: 15, fontWeight: '700', minWidth: 24, textAlign: 'center' },
+  qtyText: { fontSize: 15, fontWeight: '700', minWidth: 24, textAlign: 'center', color: ORANGE },
   addBtn: {
-    backgroundColor: '#111',
+    backgroundColor: ORANGE,
     paddingHorizontal: 16,
     paddingVertical: 8,
-    borderRadius: 8,
+    borderRadius: 10,
   },
   addBtnText: { color: '#fff', fontSize: 13, fontWeight: '700' },
 
@@ -734,12 +749,12 @@ const styles = StyleSheet.create({
     gap: 8,
     backgroundColor: '#22c55e',
     paddingVertical: 14,
-    borderRadius: 12,
+    borderRadius: 14,
   },
   placeOrderText: { color: '#fff', fontSize: 16, fontWeight: '700' },
 
   // Empty
   emptyContainer: { alignItems: 'center', marginTop: 80 },
-  emptyText: { fontSize: 16, color: '#9ca3af', marginTop: 12, fontWeight: '600' },
-  emptySubtext: { fontSize: 13, color: '#d1d5db', marginTop: 4 },
+  emptyText: { fontSize: 16, color: '#999', marginTop: 12, fontWeight: '600' },
+  emptySubtext: { fontSize: 13, color: '#ccc', marginTop: 4 },
 })

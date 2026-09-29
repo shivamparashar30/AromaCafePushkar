@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -16,6 +16,7 @@ import { Label } from '@/components/ui/label'
 import { Separator } from '@/components/ui/separator'
 import { Switch } from '@/components/ui/switch'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { useAuth } from '@/features/auth/AuthProvider'
 import {
   createTaxGroup,
   fetchOutletSettings,
@@ -31,9 +32,14 @@ const OUTLET_KEY = ['outlet-settings'] as const
 const TAX_KEY = ['settings-tax-groups'] as const
 
 export function SettingsPage() {
+  const { profile } = useAuth()
   const queryClient = useQueryClient()
 
-  const { data: outlet, isLoading } = useQuery({ queryKey: OUTLET_KEY, queryFn: fetchOutletSettings })
+  const { data: outlet, isLoading } = useQuery({
+    queryKey: OUTLET_KEY,
+    queryFn: () => fetchOutletSettings(profile!.outlet_id),
+    enabled: !!profile,
+  })
   const { data: taxGroups = [] } = useQuery({ queryKey: TAX_KEY, queryFn: fetchTaxGroups })
 
   if (isLoading || !outlet) {
@@ -43,11 +49,16 @@ export function SettingsPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold">Settings</h1>
-        <p className="text-sm text-muted-foreground">Outlet details, ordering options, tax configuration.</p>
+        <h1 className="text-xl font-semibold sm:text-2xl">Settings</h1>
+        <p className="text-sm text-muted-foreground">Outlet details, billing, tax, and ordering configuration.</p>
       </div>
 
       <OutletDetailsCard
+        outlet={outlet}
+        onSaved={() => queryClient.invalidateQueries({ queryKey: OUTLET_KEY })}
+      />
+
+      <BillingSettingsCard
         outlet={outlet}
         onSaved={() => queryClient.invalidateQueries({ queryKey: OUTLET_KEY })}
       />
@@ -81,7 +92,7 @@ function OutletDetailsCard({ outlet, onSaved }: { outlet: OutletSettings; onSave
     <Card>
       <CardHeader><CardTitle className="text-base">Outlet details</CardTitle></CardHeader>
       <CardContent className="space-y-4">
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div className="space-y-2">
             <Label>Name</Label>
             <Input value={name} onChange={(e) => setName(e.target.value)} />
@@ -107,23 +118,123 @@ function OutletDetailsCard({ outlet, onSaved }: { outlet: OutletSettings; onSave
   )
 }
 
+function BillingSettingsCard({ outlet, onSaved }: { outlet: OutletSettings; onSaved: () => void }) {
+  const s = outlet.settings ?? {}
+  const sc = s.service_charge ?? {}
+  const tax = s.tax ?? {}
+  const dd = s.default_discount ?? {}
+
+  const [taxEnabled, setTaxEnabled] = useState(tax.enabled ?? false)
+  const [taxPercent, setTaxPercent] = useState(String(tax.percent ?? 0))
+  const [scEnabled, setScEnabled] = useState(sc.enabled ?? false)
+  const [scPercent, setScPercent] = useState(String(sc.percent ?? 0))
+  const [discountEnabled, setDiscountEnabled] = useState(dd.enabled ?? false)
+  const [discountPercent, setDiscountPercent] = useState(String(dd.percent ?? 0))
+  const [billPrefix, setBillPrefix] = useState(s.bill_prefix ?? 'INV')
+
+  const mutation = useMutation({
+    mutationFn: () =>
+      updateOutletSettings({
+        ...s,
+        tax: { enabled: taxEnabled, percent: Number(taxPercent) },
+        service_charge: { enabled: scEnabled, percent: Number(scPercent) },
+        default_discount: { enabled: discountEnabled, percent: Number(discountPercent) },
+        bill_prefix: billPrefix,
+      }),
+    onSuccess: () => { onSaved(); toast.success('Billing settings saved') },
+    onError: () => toast.error('Could not save settings'),
+  })
+
+  return (
+    <Card>
+      <CardHeader><CardTitle className="text-base">Tax, service charge & discount</CardTitle></CardHeader>
+      <CardContent className="space-y-5">
+        <p className="text-xs text-muted-foreground">
+          These are applied automatically when a bill is generated.
+        </p>
+
+        {/* Tax */}
+        <div className="rounded-lg border p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium">Tax</p>
+              <p className="text-xs text-muted-foreground">Flat tax rate applied on the taxable amount</p>
+            </div>
+            <Switch checked={taxEnabled} onCheckedChange={setTaxEnabled} />
+          </div>
+          {taxEnabled && (
+            <div className="flex items-center gap-2">
+              <Input className="w-24" type="number" step="0.5" min="0" max="100" value={taxPercent} onChange={(e) => setTaxPercent(e.target.value)} />
+              <span className="text-sm text-muted-foreground">%</span>
+              <span className="text-xs text-muted-foreground ml-2">(e.g. 5 for 5% GST)</span>
+            </div>
+          )}
+        </div>
+
+        {/* Service Charge */}
+        <div className="rounded-lg border p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium">Service charge</p>
+              <p className="text-xs text-muted-foreground">Added to the bill after discount</p>
+            </div>
+            <Switch checked={scEnabled} onCheckedChange={setScEnabled} />
+          </div>
+          {scEnabled && (
+            <div className="flex items-center gap-2">
+              <Input className="w-24" type="number" step="0.5" min="0" max="100" value={scPercent} onChange={(e) => setScPercent(e.target.value)} />
+              <span className="text-sm text-muted-foreground">%</span>
+            </div>
+          )}
+        </div>
+
+        {/* Default Discount */}
+        <div className="rounded-lg border p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium">Default discount</p>
+              <p className="text-xs text-muted-foreground">Auto-applied when bill is created. Can be overridden per bill.</p>
+            </div>
+            <Switch checked={discountEnabled} onCheckedChange={setDiscountEnabled} />
+          </div>
+          {discountEnabled && (
+            <div className="flex items-center gap-2">
+              <Input className="w-24" type="number" step="1" min="0" max="100" value={discountPercent} onChange={(e) => setDiscountPercent(e.target.value)} />
+              <span className="text-sm text-muted-foreground">%</span>
+            </div>
+          )}
+        </div>
+
+        <Separator />
+
+        {/* Bill Prefix */}
+        <div className="flex flex-wrap items-center gap-3">
+          <Label>Bill prefix</Label>
+          <Input className="w-24" value={billPrefix} onChange={(e) => setBillPrefix(e.target.value)} />
+        </div>
+
+        <Button size="sm" onClick={() => mutation.mutate()} disabled={mutation.isPending}>
+          {mutation.isPending ? 'Saving…' : 'Save billing settings'}
+        </Button>
+      </CardContent>
+    </Card>
+  )
+}
+
 function OrderingSettingsCard({ outlet, onSaved }: { outlet: OutletSettings; onSaved: () => void }) {
   const s = outlet.settings ?? {}
   const ordering = s.ordering ?? {}
-  const sc = s.service_charge ?? {}
 
   const [userOrdering, setUserOrdering] = useState(ordering.user_ordering ?? false)
   const [onlineOrdering, setOnlineOrdering] = useState(ordering.online_ordering ?? false)
   const [onlinePayment, setOnlinePayment] = useState(ordering.online_payment ?? false)
   const [firstOrderConfirm, setFirstOrderConfirm] = useState(ordering.first_order_needs_confirmation ?? false)
   const [directTakeover, setDirectTakeover] = useState(ordering.allow_direct_table_takeover ?? false)
-  const [scEnabled, setScEnabled] = useState(sc.enabled ?? false)
-  const [scPercent, setScPercent] = useState(String(sc.percent ?? 0))
-  const [billPrefix, setBillPrefix] = useState(s.bill_prefix ?? 'INV')
 
   const mutation = useMutation({
     mutationFn: () =>
       updateOutletSettings({
+        ...s,
         ordering: {
           user_ordering: userOrdering,
           online_ordering: onlineOrdering,
@@ -131,16 +242,14 @@ function OrderingSettingsCard({ outlet, onSaved }: { outlet: OutletSettings; onS
           first_order_needs_confirmation: firstOrderConfirm,
           allow_direct_table_takeover: directTakeover,
         },
-        service_charge: { enabled: scEnabled, percent: Number(scPercent) },
-        bill_prefix: billPrefix,
       }),
-    onSuccess: () => { onSaved(); toast.success('Settings saved') },
+    onSuccess: () => { onSaved(); toast.success('Ordering settings saved') },
     onError: () => toast.error('Could not save settings'),
   })
 
   return (
     <Card>
-      <CardHeader><CardTitle className="text-base">Ordering & billing</CardTitle></CardHeader>
+      <CardHeader><CardTitle className="text-base">Ordering options</CardTitle></CardHeader>
       <CardContent className="space-y-4">
         <div className="space-y-3">
           <SettingRow label="Customer QR ordering" checked={userOrdering} onChange={setUserOrdering} />
@@ -149,22 +258,8 @@ function OrderingSettingsCard({ outlet, onSaved }: { outlet: OutletSettings; onS
           <SettingRow label="First order needs waiter confirmation" checked={firstOrderConfirm} onChange={setFirstOrderConfirm} />
           <SettingRow label="Allow direct table takeover" checked={directTakeover} onChange={setDirectTakeover} />
         </div>
-        <Separator />
-        <div className="flex items-center gap-4">
-          <SettingRow label="Service charge" checked={scEnabled} onChange={setScEnabled} />
-          {scEnabled && (
-            <div className="flex items-center gap-1">
-              <Input className="w-20" type="number" value={scPercent} onChange={(e) => setScPercent(e.target.value)} />
-              <span className="text-sm text-muted-foreground">%</span>
-            </div>
-          )}
-        </div>
-        <div className="flex items-center gap-4">
-          <Label className="min-w-[180px]">Bill prefix</Label>
-          <Input className="w-24" value={billPrefix} onChange={(e) => setBillPrefix(e.target.value)} />
-        </div>
         <Button size="sm" onClick={() => mutation.mutate()} disabled={mutation.isPending}>
-          {mutation.isPending ? 'Saving…' : 'Save settings'}
+          {mutation.isPending ? 'Saving…' : 'Save ordering settings'}
         </Button>
       </CardContent>
     </Card>
@@ -174,7 +269,7 @@ function OrderingSettingsCard({ outlet, onSaved }: { outlet: OutletSettings; onS
 function SettingRow({ label, checked, onChange }: { label: string; checked: boolean; onChange: (v: boolean) => void }) {
   return (
     <div className="flex items-center justify-between">
-      <Label className="min-w-[180px]">{label}</Label>
+      <Label className="text-sm">{label}</Label>
       <Switch checked={checked} onCheckedChange={onChange} />
     </div>
   )
@@ -200,13 +295,18 @@ function TaxGroupsCard({ taxGroups, onSaved }: { taxGroups: TaxGroup[]; onSaved:
 
   return (
     <Card>
-      <CardHeader className="flex flex-row items-center justify-between">
-        <CardTitle className="text-base">Tax groups</CardTitle>
+      <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2">
+        <div>
+          <CardTitle className="text-base">Tax groups (per-item)</CardTitle>
+          <p className="text-xs text-muted-foreground mt-1">
+            Used only if the flat tax rate above is disabled. Assign tax groups to individual menu items.
+          </p>
+        </div>
         <Button size="sm" variant="outline" onClick={() => { setTName(''); setCgst(''); setSgst(''); setFormOpen(true) }}>
           Add tax group
         </Button>
       </CardHeader>
-      <CardContent>
+      <CardContent className="overflow-x-auto">
         <Table>
           <TableHeader>
             <TableRow>

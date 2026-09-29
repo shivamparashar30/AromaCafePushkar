@@ -31,8 +31,6 @@ const FLOORS_KEY = ['floors-with-tables'] as const
 export function LiveOrdersPage() {
   const { profile } = useAuth()
   const canManage = profile?.role === 'super_admin' || profile?.role === 'manager' || profile?.role === 'cashier'
-  // claim_table (Open table) is restricted server-side to waiter/manager/super_admin -- cashier
-  // can manage bills/orders on an already-open table, but doesn't open new ones.
   const canClaim = profile?.role === 'super_admin' || profile?.role === 'manager'
   const queryClient = useQueryClient()
   const [selectedTableId, setSelectedTableId] = useState<string | null>(null)
@@ -98,20 +96,21 @@ export function LiveOrdersPage() {
   const selectedTable = allTables.find((t) => t.id === selectedTableId)
 
   return (
-    <div className="grid grid-cols-[280px_1fr] gap-6">
-      <div className="space-y-4">
-        <h1 className="text-2xl font-semibold">Live table ordering</h1>
+    <div className="flex flex-col gap-4 lg:grid lg:grid-cols-[260px_1fr] lg:gap-6">
+      {/* Table picker */}
+      <div className="space-y-3">
+        <h1 className="text-xl font-semibold sm:text-2xl">Live table ordering</h1>
         <div className="space-y-3">
           {floors.map((floor) => (
             <div key={floor.id}>
               <p className="mb-1 text-xs font-medium text-muted-foreground">{floor.name}</p>
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-4 gap-1.5 sm:grid-cols-5 lg:grid-cols-3">
                 {floor.tables.map((t) => (
                   <button
                     key={t.id}
                     onClick={() => setSelectedTableId(t.id)}
                     className={cn(
-                      'rounded-md border p-2 text-center text-sm',
+                      'rounded-md border p-1.5 text-center text-xs sm:p-2 sm:text-sm',
                       TABLE_STATUS_STYLE[t.status],
                       selectedTableId === t.id && 'ring-2 ring-primary',
                     )}
@@ -125,33 +124,37 @@ export function LiveOrdersPage() {
         </div>
       </div>
 
-      <div>
+      {/* Selected table detail */}
+      <div className="min-w-0">
         {!selectedTable ? (
           <p className="text-sm text-muted-foreground">Select a table to view its order.</p>
         ) : !detail ? (
           <p className="text-sm text-muted-foreground">Loading…</p>
         ) : (
           <div className="space-y-4">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-start justify-between gap-2">
               <div>
-                <h2 className="text-xl font-semibold">{selectedTable.name}</h2>
-                <p className="text-sm text-muted-foreground">
+                <h2 className="text-lg font-semibold sm:text-xl">{selectedTable.name}</h2>
+                <p className="text-xs text-muted-foreground sm:text-sm">
                   {TABLE_STATUS_LABEL[selectedTable.status] ?? selectedTable.status}
                   {detail.session?.guest_count ? ` · ${detail.session.guest_count} guests` : ''}
+                  {detail.session?.customer_name ? ` · ${detail.session.customer_name}` : ''}
+                  {detail.session?.customer_phone ? ` (${detail.session.customer_phone})` : ''}
                 </p>
               </div>
               {!detail.session && canClaim && (
-                <Button onClick={() => claimMutation.mutate(selectedTable.id)}>Open table</Button>
+                <Button size="sm" onClick={() => claimMutation.mutate(selectedTable.id)}>Open table</Button>
               )}
               {detail.session && detail.bill?.status !== 'paid' && (
                 <div className="flex gap-2">
-                  <Button onClick={() => setPickerOpen(true)}>Add items</Button>
+                  <Button size="sm" onClick={() => setPickerOpen(true)}>Add items</Button>
                   {canManage &&
                     (detail.orders.length === 0 ||
                       detail.orders.every((o) =>
                         o.items.every((i) => i.status === 'cancelled'),
                       )) && (
                       <Button
+                        size="sm"
                         variant="outline"
                         className="text-destructive"
                         onClick={() => freeTableMutation.mutate(detail.session!.id)}
@@ -164,7 +167,7 @@ export function LiveOrdersPage() {
             </div>
 
             {detail.session && (
-              <div className="grid grid-cols-[1fr_320px] gap-4">
+              <div className="flex flex-col gap-4 xl:grid xl:grid-cols-[1fr_320px]">
                 <Card>
                   <CardHeader>
                     <CardTitle className="text-base">Order</CardTitle>

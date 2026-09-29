@@ -71,14 +71,15 @@ export function ItemPickerDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[85vh] max-w-3xl overflow-hidden">
+      <DialogContent className="max-h-[90vh] w-[95vw] max-w-3xl overflow-hidden sm:w-full">
         <DialogHeader>
           <DialogTitle>Add items</DialogTitle>
         </DialogHeader>
-        <div className="grid grid-cols-3 gap-4 overflow-hidden">
-          <div className="col-span-2 flex flex-col overflow-hidden">
+        <div className="flex flex-col gap-3 overflow-hidden md:grid md:grid-cols-3 md:gap-4">
+          {/* Menu items */}
+          <div className="flex flex-col overflow-hidden md:col-span-2">
             <Tabs value={categoryId} onValueChange={setCategoryId}>
-              <TabsList className="flex-wrap">
+              <TabsList className="flex-wrap h-auto">
                 <TabsTrigger value="all">All</TabsTrigger>
                 {categories.map((c) => (
                   <TabsTrigger key={c.id} value={c.id}>
@@ -87,22 +88,23 @@ export function ItemPickerDialog({
                 ))}
               </TabsList>
             </Tabs>
-            <div className="mt-2 grid max-h-[50vh] grid-cols-2 gap-2 overflow-y-auto pr-2">
+            <div className="mt-2 grid max-h-[35vh] grid-cols-2 gap-2 overflow-y-auto pr-1 sm:grid-cols-2 md:max-h-[50vh]">
               {visibleItems.map((item) => (
                 <button
                   key={item.id}
                   onClick={() => setPickerItemId(item.id)}
                   className="rounded-md border p-2 text-left text-sm hover:bg-muted"
                 >
-                  <p className="font-medium">{item.name}</p>
+                  <p className="font-medium text-xs sm:text-sm">{item.name}</p>
                   <p className="text-xs text-muted-foreground">{formatMoney(item.price)}</p>
                 </button>
               ))}
             </div>
           </div>
-          <div className="flex flex-col overflow-hidden border-l pl-4">
+          {/* Cart */}
+          <div className="flex flex-col overflow-hidden border-t pt-3 md:border-t-0 md:border-l md:pl-4 md:pt-0">
             <p className="mb-2 text-sm font-medium">Order ({draft.length})</p>
-            <div className="flex-1 space-y-2 overflow-y-auto">
+            <div className="flex-1 space-y-2 overflow-y-auto max-h-[25vh] md:max-h-none">
               {draft.map((l) => (
                 <div key={l.key} className="rounded border p-2 text-xs">
                   <div className="flex items-start justify-between gap-2">
@@ -128,7 +130,7 @@ export function ItemPickerDialog({
           </div>
         </div>
         <DialogFooter>
-          <Button onClick={handleConfirm} disabled={submitting || draft.length === 0}>
+          <Button className="w-full sm:w-auto" onClick={handleConfirm} disabled={submitting || draft.length === 0}>
             {submitting ? 'Placing…' : `Place order (${draft.length})`}
           </Button>
         </DialogFooter>
@@ -202,7 +204,7 @@ function ItemOptionPicker({
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent>
+      <DialogContent className="w-[95vw] max-w-md sm:w-full">
         <DialogHeader>
           <DialogTitle>{itemName}</DialogTitle>
         </DialogHeader>
@@ -253,7 +255,7 @@ function ItemOptionPicker({
           </div>
         </div>
         <DialogFooter>
-          <Button onClick={confirm}>Add · {formatMoney(unitPrice * qty)}</Button>
+          <Button className="w-full sm:w-auto" onClick={confirm}>Add · {formatMoney(unitPrice * qty)}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

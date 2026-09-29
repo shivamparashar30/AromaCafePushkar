@@ -31,7 +31,7 @@ export function OrderList({
           <div className="flex items-center justify-between border-b bg-muted/40 px-3 py-1.5 text-xs">
             <span className="font-medium">KOT #{order.kot_number}</span>
             <span className="text-muted-foreground">
-              {order.source} · {new Date(order.created_at).toLocaleTimeString()}
+              {order.source === 'customer' ? `Customer: ${order.placed_by_name || 'Guest'}` : order.placed_by_name ?? order.source} · {new Date(order.created_at).toLocaleTimeString()}
             </span>
           </div>
           <div className="divide-y">

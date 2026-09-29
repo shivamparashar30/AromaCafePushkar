@@ -17,6 +17,10 @@ import { useAuth } from '../src/context/AuthContext'
 import { loadProfile } from '../src/lib/auth'
 import { supabase } from '../src/lib/supabase'
 
+const ORANGE = '#E8713A'
+const ORANGE_LIGHT = '#FFF7F2'
+const ORANGE_BORDER = '#FDDCC8'
+
 export default function LoginScreen() {
   const { setProfile } = useAuth()
   const [phone, setPhone] = useState('+91')
@@ -61,9 +65,9 @@ export default function LoginScreen() {
     <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <View style={styles.card}>
         <View style={styles.logoCircle}>
-          <Ionicons name="restaurant" size={32} color="#111" />
+          <Ionicons name="cafe" size={32} color="#fff" />
         </View>
-        <Text style={styles.title}>Restro Staff</Text>
+        <Text style={styles.title}>Aroma Cafe Pushkar</Text>
         <Text style={styles.subtitle}>Sign in with your phone & PIN</Text>
 
         <View style={styles.inputGroup}>
@@ -75,7 +79,7 @@ export default function LoginScreen() {
             <TextInput
               style={styles.phoneInput}
               placeholder="Enter 10-digit number"
-              placeholderTextColor="#bbb"
+              placeholderTextColor="#c4c4c4"
               value={phone.replace(/^\+91/, '')}
               onChangeText={(text) => setPhone('+91' + text.replace(/[^0-9]/g, ''))}
               keyboardType="phone-pad"
@@ -89,7 +93,7 @@ export default function LoginScreen() {
           <TextInput
             style={styles.input}
             placeholder="Enter your PIN"
-            placeholderTextColor="#bbb"
+            placeholderTextColor="#c4c4c4"
             value={pin}
             onChangeText={setPin}
             keyboardType="number-pad"
@@ -108,7 +112,7 @@ export default function LoginScreen() {
               <Ionicons
                 name="person-outline"
                 size={18}
-                color={platform === 'android_waiter' ? '#fff' : '#666'}
+                color={platform === 'android_waiter' ? '#fff' : '#888'}
               />
               <Text style={[styles.roleBtnText, platform === 'android_waiter' && styles.roleBtnTextActive]}>
                 Waiter
@@ -121,7 +125,7 @@ export default function LoginScreen() {
               <Ionicons
                 name="flame-outline"
                 size={18}
-                color={platform === 'android_kitchen' ? '#fff' : '#666'}
+                color={platform === 'android_kitchen' ? '#fff' : '#888'}
               />
               <Text style={[styles.roleBtnText, platform === 'android_kitchen' && styles.roleBtnTextActive]}>
                 Kitchen
@@ -154,42 +158,47 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#f8f9fa',
+    backgroundColor: '#fff',
   },
   card: {
     width: '88%',
     maxWidth: 380,
     backgroundColor: '#fff',
-    borderRadius: 16,
+    borderRadius: 20,
     padding: 28,
     borderWidth: 1,
     borderColor: '#f0f0f0',
     shadowColor: '#000',
-    shadowOpacity: 0.08,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.06,
+    shadowRadius: 20,
+    shadowOffset: { width: 0, height: 6 },
     elevation: 4,
   },
   logoCircle: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: '#f3f4f6',
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: ORANGE,
     alignItems: 'center',
     justifyContent: 'center',
     alignSelf: 'center',
     marginBottom: 16,
+    shadowColor: ORANGE,
+    shadowOpacity: 0.3,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 6,
   },
   title: {
     fontSize: 22,
     fontWeight: '800',
     textAlign: 'center',
-    color: '#111',
+    color: '#1a1a1a',
     marginBottom: 4,
   },
   subtitle: {
     fontSize: 14,
-    color: '#9ca3af',
+    color: '#999',
     textAlign: 'center',
     marginBottom: 28,
   },
@@ -199,28 +208,28 @@ const styles = StyleSheet.create({
   label: {
     fontSize: 13,
     fontWeight: '600',
-    color: '#374151',
+    color: '#555',
     marginBottom: 6,
   },
   input: {
     borderWidth: 1,
-    borderColor: '#e5e7eb',
-    borderRadius: 10,
+    borderColor: '#e8e8e8',
+    borderRadius: 12,
     paddingHorizontal: 14,
     paddingVertical: 12,
     fontSize: 16,
-    color: '#111',
+    color: '#1a1a1a',
     backgroundColor: '#fafafa',
   },
   phoneRow: {
     flexDirection: 'row',
   },
   phonePrefix: {
-    backgroundColor: '#f3f4f6',
+    backgroundColor: ORANGE_LIGHT,
     borderWidth: 1,
-    borderColor: '#e5e7eb',
-    borderTopLeftRadius: 10,
-    borderBottomLeftRadius: 10,
+    borderColor: ORANGE_BORDER,
+    borderTopLeftRadius: 12,
+    borderBottomLeftRadius: 12,
     borderRightWidth: 0,
     paddingHorizontal: 14,
     justifyContent: 'center',
@@ -228,18 +237,18 @@ const styles = StyleSheet.create({
   phonePrefixText: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#374151',
+    color: ORANGE,
   },
   phoneInput: {
     flex: 1,
     borderWidth: 1,
-    borderColor: '#e5e7eb',
-    borderTopRightRadius: 10,
-    borderBottomRightRadius: 10,
+    borderColor: '#e8e8e8',
+    borderTopRightRadius: 12,
+    borderBottomRightRadius: 12,
     paddingHorizontal: 14,
     paddingVertical: 12,
     fontSize: 16,
-    color: '#111',
+    color: '#1a1a1a',
     backgroundColor: '#fafafa',
   },
   roleRow: {
@@ -253,19 +262,19 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 6,
     paddingVertical: 12,
-    borderRadius: 10,
+    borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#e5e7eb',
+    borderColor: '#e8e8e8',
     backgroundColor: '#fafafa',
   },
   roleBtnActive: {
-    backgroundColor: '#111',
-    borderColor: '#111',
+    backgroundColor: ORANGE,
+    borderColor: ORANGE,
   },
   roleBtnText: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#666',
+    color: '#888',
   },
   roleBtnTextActive: {
     color: '#fff',
@@ -275,10 +284,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
-    backgroundColor: '#111',
+    backgroundColor: ORANGE,
     paddingVertical: 14,
-    borderRadius: 12,
+    borderRadius: 14,
     marginTop: 8,
+    shadowColor: ORANGE,
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 4,
   },
   loginBtnText: {
     color: '#fff',

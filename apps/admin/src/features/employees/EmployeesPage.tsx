@@ -93,9 +93,9 @@ export function EmployeesPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-start justify-between">
+      <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
-          <h1 className="text-2xl font-semibold">Employee management</h1>
+          <h1 className="text-xl font-semibold sm:text-2xl">Employee management</h1>
           <p className="text-sm text-muted-foreground">Staff members, roles and devices.</p>
         </div>
         {canEdit && (
@@ -105,69 +105,71 @@ export function EmployeesPage() {
         )}
       </div>
 
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Name</TableHead>
-            <TableHead>Phone</TableHead>
-            <TableHead>Role</TableHead>
-            <TableHead>Joined</TableHead>
-            <TableHead>Status</TableHead>
-            {canEdit && <TableHead />}
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {staff.map((s) => (
-            <TableRow key={s.id} className={!s.is_active ? 'opacity-50' : undefined}>
-              <TableCell>
-                <button
-                  className="font-medium hover:underline text-left"
-                  onClick={() => setSelectedStaff(s)}
-                >
-                  {s.name}
-                </button>
-              </TableCell>
-              <TableCell>{s.phone}</TableCell>
-              <TableCell>
-                <Badge variant="outline">{ROLE_LABEL[s.role] ?? s.role}</Badge>
-              </TableCell>
-              <TableCell>{s.joining_date}</TableCell>
-              <TableCell>
-                <Badge variant={s.is_active ? 'default' : 'secondary'}>
-                  {s.is_active ? 'Active' : 'Inactive'}
-                </Badge>
-              </TableCell>
-              {canEdit && (
-                <TableCell className="space-x-2 text-right">
-                  <Button
-                    variant="link"
-                    size="sm"
-                    className="h-auto p-0"
-                    onClick={() => { setEditing(s); setFormOpen(true) }}
-                  >
-                    Edit
-                  </Button>
-                  <Button
-                    variant="link"
-                    size="sm"
-                    className="h-auto p-0"
-                    onClick={() => toggleActiveMutation.mutate({ id: s.id, active: !s.is_active })}
-                  >
-                    {s.is_active ? 'Deactivate' : 'Activate'}
-                  </Button>
-                </TableCell>
-              )}
-            </TableRow>
-          ))}
-          {staff.length === 0 && (
+      <div className="overflow-x-auto">
+        <Table>
+          <TableHeader>
             <TableRow>
-              <TableCell colSpan={6} className="text-center text-sm text-muted-foreground">
-                No employees yet.
-              </TableCell>
+              <TableHead>Name</TableHead>
+              <TableHead className="hidden sm:table-cell">Phone</TableHead>
+              <TableHead>Role</TableHead>
+              <TableHead className="hidden md:table-cell">Joined</TableHead>
+              <TableHead>Status</TableHead>
+              {canEdit && <TableHead />}
             </TableRow>
-          )}
-        </TableBody>
-      </Table>
+          </TableHeader>
+          <TableBody>
+            {staff.map((s) => (
+              <TableRow key={s.id} className={!s.is_active ? 'opacity-50' : undefined}>
+                <TableCell>
+                  <button
+                    className="font-medium hover:underline text-left"
+                    onClick={() => setSelectedStaff(s)}
+                  >
+                    {s.name}
+                  </button>
+                </TableCell>
+                <TableCell className="hidden sm:table-cell">{s.phone}</TableCell>
+                <TableCell>
+                  <Badge variant="outline">{ROLE_LABEL[s.role] ?? s.role}</Badge>
+                </TableCell>
+                <TableCell className="hidden md:table-cell">{s.joining_date}</TableCell>
+                <TableCell>
+                  <Badge variant={s.is_active ? 'default' : 'secondary'}>
+                    {s.is_active ? 'Active' : 'Inactive'}
+                  </Badge>
+                </TableCell>
+                {canEdit && (
+                  <TableCell className="space-x-2 text-right">
+                    <Button
+                      variant="link"
+                      size="sm"
+                      className="h-auto p-0"
+                      onClick={() => { setEditing(s); setFormOpen(true) }}
+                    >
+                      Edit
+                    </Button>
+                    <Button
+                      variant="link"
+                      size="sm"
+                      className="h-auto p-0"
+                      onClick={() => toggleActiveMutation.mutate({ id: s.id, active: !s.is_active })}
+                    >
+                      {s.is_active ? 'Deactivate' : 'Activate'}
+                    </Button>
+                  </TableCell>
+                )}
+              </TableRow>
+            ))}
+            {staff.length === 0 && (
+              <TableRow>
+                <TableCell colSpan={6} className="text-center text-sm text-muted-foreground">
+                  No employees yet.
+                </TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+      </div>
 
       <EmployeeFormDialog
         open={formOpen}

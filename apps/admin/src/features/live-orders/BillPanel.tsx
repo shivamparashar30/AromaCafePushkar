@@ -50,7 +50,10 @@ export function BillPanel({
         <CardHeader>
           <CardTitle className="text-base">Bill</CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-2">
+          <p className="text-xs text-muted-foreground">
+            Tax, service charge, and discount from settings will be auto-applied.
+          </p>
           <Button disabled={!canManage || busy} onClick={() => run(onCreateBill)}>
             Create bill
           </Button>
@@ -59,31 +62,44 @@ export function BillPanel({
     )
   }
 
+  const discountPct = bill.subtotal > 0
+    ? ((Number(bill.discount) / Number(bill.subtotal)) * 100).toFixed(1).replace(/\.0$/, '')
+    : '0'
+
   return (
     <Card>
       <CardHeader>
         <CardTitle className="text-base">Bill {bill.bill_no ? `#${bill.bill_no}` : '(open)'}</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
-        <dl className="space-y-1 text-sm">
+        <dl className="space-y-1.5 text-sm">
           <Row label="Subtotal" value={formatMoney(bill.subtotal)} />
-          <Row label="Discount" value={`- ${formatMoney(bill.discount)}`} />
-          <Row label="Service charge" value={formatMoney(bill.service_charge)} />
-          <Row label="Tax" value={formatMoney(bill.tax_total)} />
-          <Row label="Round off" value={formatMoney(bill.round_off)} />
-          <Row label="Total" value={formatMoney(bill.total)} bold />
-          <Row label="Paid" value={formatMoney(paid)} />
-          <Row label="Remaining" value={formatMoney(remaining)} bold={remaining > 0} />
+          {Number(bill.discount) > 0 && (
+            <Row label={`Discount (${discountPct}%)`} value={`- ${formatMoney(bill.discount)}`} />
+          )}
+          {Number(bill.service_charge) > 0 && (
+            <Row label="Service charge" value={formatMoney(bill.service_charge)} />
+          )}
+          {Number(bill.tax_total) > 0 && (
+            <Row label="Tax" value={formatMoney(bill.tax_total)} />
+          )}
+          {Number(bill.round_off) !== 0 && (
+            <Row label="Round off" value={formatMoney(bill.round_off)} />
+          )}
+          <div className="border-t pt-1.5">
+            <Row label="Total" value={formatMoney(bill.total)} bold />
+          </div>
+          {paid > 0 && <Row label="Paid" value={formatMoney(paid)} />}
+          {remaining > 0 && <Row label="Remaining" value={formatMoney(remaining)} bold />}
         </dl>
 
-        {canManage && (
+        {canManage && bill.status === 'open' && (
           <>
             <div className="space-y-2 border-t pt-3">
-              <p className="text-xs font-medium text-muted-foreground">Apply discount</p>
-              <div className="flex gap-2">
+              <p className="text-xs font-medium text-muted-foreground">Change discount</p>
+              <div className="grid grid-cols-[1fr_1fr] gap-2 sm:flex">
                 <Input
-                  placeholder="₹"
-                  className="w-24"
+                  placeholder="Amount ₹"
                   value={discountRupees}
                   onChange={(e) => setDiscountRupees(e.target.value)}
                 />
@@ -92,23 +108,25 @@ export function BillPanel({
                   value={discountReason}
                   onChange={(e) => setDiscountReason(e.target.value)}
                 />
-                <Button
-                  variant="outline"
-                  disabled={busy || !discountRupees}
-                  onClick={() =>
-                    run(() => onApplyDiscount(rupeesToPaise(Number(discountRupees)), discountReason))
-                  }
-                >
-                  Apply
-                </Button>
               </div>
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full sm:w-auto"
+                disabled={busy || !discountRupees}
+                onClick={() =>
+                  run(() => onApplyDiscount(rupeesToPaise(Number(discountRupees)), discountReason))
+                }
+              >
+                Apply discount
+              </Button>
             </div>
 
             <div className="space-y-2 border-t pt-3">
               <p className="text-xs font-medium text-muted-foreground">Record payment</p>
-              <div className="flex gap-2">
+              <div className="grid gap-2 sm:grid-cols-2">
                 <Select value={paymentMode} onValueChange={(v) => setPaymentMode(v as PaymentMode)}>
-                  <SelectTrigger className="w-28">
+                  <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -121,25 +139,26 @@ export function BillPanel({
                 </Select>
                 <Input
                   placeholder="Amount ₹"
-                  className="w-24"
                   value={paymentAmount}
                   onChange={(e) => setPaymentAmount(e.target.value)}
                 />
-                <Input placeholder="Reference" value={reference} onChange={(e) => setReference(e.target.value)} />
-                <Button
-                  variant="outline"
-                  disabled={busy || !paymentAmount}
-                  onClick={() =>
-                    run(async () => {
-                      await onAddPayment(paymentMode, rupeesToPaise(Number(paymentAmount)), reference)
-                      setPaymentAmount('')
-                      setReference('')
-                    })
-                  }
-                >
-                  Add payment
-                </Button>
               </div>
+              <Input placeholder="Reference (optional)" value={reference} onChange={(e) => setReference(e.target.value)} />
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full sm:w-auto"
+                disabled={busy || !paymentAmount}
+                onClick={() =>
+                  run(async () => {
+                    await onAddPayment(paymentMode, rupeesToPaise(Number(paymentAmount)), reference)
+                    setPaymentAmount('')
+                    setReference('')
+                  })
+                }
+              >
+                Add payment
+              </Button>
               {payments.length > 0 && (
                 <ul className="text-xs text-muted-foreground">
                   {payments.map((p) => (
@@ -151,8 +170,9 @@ export function BillPanel({
               )}
             </div>
 
-            <div className="flex items-center justify-between border-t pt-3">
+            <div className="flex flex-col gap-2 border-t pt-3 sm:flex-row sm:items-center sm:justify-between">
               <Button
+                className="w-full sm:w-auto"
                 disabled={busy}
                 onClick={() =>
                   run(async () => {
@@ -167,7 +187,7 @@ export function BillPanel({
               </Button>
               <Button
                 variant="ghost"
-                className="text-destructive"
+                className="text-destructive w-full sm:w-auto"
                 disabled={busy}
                 onClick={() => {
                   const reason = window.prompt('Reason for voiding this bill?')

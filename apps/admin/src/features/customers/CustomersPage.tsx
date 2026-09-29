@@ -60,9 +60,9 @@ export function CustomersPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-start justify-between">
+      <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
-          <h1 className="text-2xl font-semibold">Customers</h1>
+          <h1 className="text-xl font-semibold sm:text-2xl">Customers</h1>
           <p className="text-sm text-muted-foreground">{customers.length} total customers.</p>
         </div>
         {canEdit && (
@@ -79,48 +79,50 @@ export function CustomersPage() {
         className="max-w-sm"
       />
 
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Name</TableHead>
-            <TableHead>Phone</TableHead>
-            <TableHead className="text-right">Visits</TableHead>
-            <TableHead className="text-right">Total spend</TableHead>
-            <TableHead>WhatsApp</TableHead>
-            {canEdit && <TableHead />}
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {filtered.map((c) => (
-            <TableRow key={c.id}>
-              <TableCell className="font-medium">{c.name || '—'}</TableCell>
-              <TableCell>{c.phone}</TableCell>
-              <TableCell className="text-right">{c.visits}</TableCell>
-              <TableCell className="text-right">{formatMoney(c.total_spend)}</TableCell>
-              <TableCell>{c.whatsapp_opt_in ? 'Yes' : 'No'}</TableCell>
-              {canEdit && (
-                <TableCell className="text-right">
-                  <Button
-                    variant="link"
-                    size="sm"
-                    className="h-auto p-0"
-                    onClick={() => { setEditing(c); setFormOpen(true) }}
-                  >
-                    Edit
-                  </Button>
-                </TableCell>
-              )}
-            </TableRow>
-          ))}
-          {filtered.length === 0 && (
+      <div className="overflow-x-auto">
+        <Table>
+          <TableHeader>
             <TableRow>
-              <TableCell colSpan={6} className="text-center text-sm text-muted-foreground">
-                {search ? 'No customers match your search.' : 'No customers yet.'}
-              </TableCell>
+              <TableHead>Name</TableHead>
+              <TableHead>Phone</TableHead>
+              <TableHead className="text-right hidden sm:table-cell">Visits</TableHead>
+              <TableHead className="text-right hidden sm:table-cell">Total spend</TableHead>
+              <TableHead className="hidden md:table-cell">WhatsApp</TableHead>
+              {canEdit && <TableHead />}
             </TableRow>
-          )}
-        </TableBody>
-      </Table>
+          </TableHeader>
+          <TableBody>
+            {filtered.map((c) => (
+              <TableRow key={c.id}>
+                <TableCell className="font-medium">{c.name || '—'}</TableCell>
+                <TableCell>{c.phone}</TableCell>
+                <TableCell className="text-right hidden sm:table-cell">{c.visits}</TableCell>
+                <TableCell className="text-right hidden sm:table-cell">{formatMoney(c.total_spend)}</TableCell>
+                <TableCell className="hidden md:table-cell">{c.whatsapp_opt_in ? 'Yes' : 'No'}</TableCell>
+                {canEdit && (
+                  <TableCell className="text-right">
+                    <Button
+                      variant="link"
+                      size="sm"
+                      className="h-auto p-0"
+                      onClick={() => { setEditing(c); setFormOpen(true) }}
+                    >
+                      Edit
+                    </Button>
+                  </TableCell>
+                )}
+              </TableRow>
+            ))}
+            {filtered.length === 0 && (
+              <TableRow>
+                <TableCell colSpan={6} className="text-center text-sm text-muted-foreground">
+                  {search ? 'No customers match your search.' : 'No customers yet.'}
+                </TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+      </div>
 
       <CustomerFormDialog
         open={formOpen}

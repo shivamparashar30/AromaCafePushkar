@@ -9,14 +9,16 @@ import styles from './page.module.css'
 interface Addon { id: string; name: string; price: number }
 interface AddonGroup { id: string; name: string; min_select: number; max_select: number; addons: Addon[] }
 interface Variant { id: string; name: string; price: number }
-interface MenuItem { id: string; name: string; description: string | null; price: number; food_type: string; variants: Variant[]; addon_groups: AddonGroup[] }
+interface MenuItem { id: string; name: string; description: string | null; price: number; food_type: string; in_stock: boolean; variants: Variant[]; addon_groups: AddonGroup[] }
 interface Category { id: string; name: string; items: MenuItem[] }
 
 interface TableInfo {
   table_id: string
   table_name: string
   outlet_name: string
-  session_id: string
+  session_id: string | null
+  customer_name: string | null
+  customer_phone: string | null
   menu: Category[]
 }
 
@@ -33,6 +35,8 @@ interface OrderStatus {
   id: string
   kot_number: number
   status: string
+  source: string
+  placed_by_name: string | null
   items: { name: string; status: string; qty: number }[]
 }
 
@@ -46,31 +50,39 @@ export default function TablePage() {
   const [placing, setPlacing] = useState(false)
   const [activeCategory, setActiveCategory] = useState<string | null>(null)
 
-  // Resolve QR and sign in anonymously
+  // Customer details
+  const [showNameModal, setShowNameModal] = useState(false)
+  const [customerName, setCustomerName] = useState('')
+  const [customerPhone, setCustomerPhone] = useState('')
+
+  // Resolve QR
   useEffect(() => {
     async function init() {
       try {
-        // Sign in anonymously
+        // Try anonymous sign-in (optional)
         const { data: { session } } = await supabase.auth.getSession()
         if (!session) {
-          await supabase.auth.signInAnonymously()
+          await supabase.auth.signInAnonymously().catch(() => {})
         }
 
         const { data, error: rpcError } = await supabase.rpc('resolve_qr', { p_token: token })
         if (rpcError) throw rpcError
-        if (!data || data.error) throw new Error(data?.error ?? 'Invalid QR code')
+        if (!data) throw new Error('Invalid QR code')
 
         const info: TableInfo = {
-          table_id: data.table_id,
-          table_name: data.table_name,
-          outlet_name: data.outlet_name,
-          session_id: data.session_id,
+          table_id: data.table?.id,
+          table_name: data.table?.name,
+          outlet_name: data.outlet?.name,
+          session_id: data.session_id ?? null,
+          customer_name: data.customer_name ?? null,
+          customer_phone: data.customer_phone ?? null,
           menu: data.menu ?? [],
         }
         setTableInfo(info)
+        if (info.customer_name) setCustomerName(info.customer_name)
+        if (info.customer_phone) setCustomerPhone(info.customer_phone)
         if (info.menu.length > 0) setActiveCategory(info.menu[0].id)
 
-        // Load existing orders for this session
         if (info.session_id) loadOrders(info.session_id)
       } catch (err: any) {
         setError(err.message || 'Could not load menu')
@@ -82,20 +94,18 @@ export default function TablePage() {
   }, [token])
 
   const loadOrders = useCallback(async (sessionId: string) => {
-    const { data } = await supabase
-      .from('orders')
-      .select('id, kot_number, status, order_items(qty, status, menu_item:menu_items(name))')
-      .eq('session_id', sessionId)
-      .order('created_at', { ascending: false })
-
+    const { data } = await supabase.rpc('customer_fetch_orders', { p_session_id: sessionId })
     if (data) {
+      const orderList = Array.isArray(data) ? data : []
       setOrders(
-        data.map((o: any) => ({
+        orderList.map((o: any) => ({
           id: o.id,
           kot_number: o.kot_number,
           status: o.status,
-          items: (o.order_items ?? []).map((i: any) => ({
-            name: (i.menu_item as any)?.name ?? '',
+          source: o.source,
+          placed_by_name: o.placed_by_name,
+          items: (o.items ?? []).map((i: any) => ({
+            name: i.name ?? '',
             status: i.status,
             qty: i.qty,
           })),
@@ -104,16 +114,12 @@ export default function TablePage() {
     }
   }, [])
 
-  // Realtime for order updates
+  // Poll for order updates every 10s (realtime requires auth)
   useEffect(() => {
     if (!tableInfo?.session_id) return
     const sid = tableInfo.session_id
-    const channel = supabase
-      .channel(`customer-${sid}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, () => loadOrders(sid))
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'order_items' }, () => loadOrders(sid))
-      .subscribe()
-    return () => { supabase.removeChannel(channel) }
+    const interval = setInterval(() => loadOrders(sid), 10000)
+    return () => clearInterval(interval)
   }, [tableInfo?.session_id, loadOrders])
 
   function addToCart(item: MenuItem) {
@@ -126,10 +132,6 @@ export default function TablePage() {
     })
   }
 
-  function removeFromCart(index: number) {
-    setCart((prev) => prev.filter((_, i) => i !== index))
-  }
-
   function updateQty(index: number, delta: number) {
     setCart((prev) =>
       prev
@@ -138,9 +140,20 @@ export default function TablePage() {
     )
   }
 
-  async function handlePlaceOrder() {
-    if (!tableInfo?.session_id || cart.length === 0) return
+  function handlePlaceOrderClick() {
+    if (cart.length === 0) return
+    // If no customer name yet, show modal
+    if (!customerName && !tableInfo?.customer_name) {
+      setShowNameModal(true)
+      return
+    }
+    doPlaceOrder()
+  }
+
+  async function doPlaceOrder() {
+    if (!tableInfo || cart.length === 0) return
     setPlacing(true)
+    setShowNameModal(false)
     try {
       const items = cart.map((c) => ({
         item_id: c.item.id,
@@ -148,13 +161,23 @@ export default function TablePage() {
         qty: c.qty,
         addon_ids: c.addonIds.length > 0 ? c.addonIds : undefined,
       }))
-      const { error: rpcError } = await supabase.rpc('place_order', {
-        p_session_id: tableInfo.session_id,
+
+      const { data, error: rpcError } = await supabase.rpc('customer_place_order', {
+        p_table_id: tableInfo.table_id,
         p_items: items,
+        p_customer_name: customerName || null,
+        p_customer_phone: customerPhone || null,
       })
       if (rpcError) throw rpcError
+
+      // Update session_id if this was the first order
+      const newSessionId = data?.session_id ?? tableInfo.session_id
+      if (newSessionId && newSessionId !== tableInfo.session_id) {
+        setTableInfo((prev) => prev ? { ...prev, session_id: newSessionId, customer_name: customerName, customer_phone: customerPhone } : prev)
+      }
+
       setCart([])
-      loadOrders(tableInfo.session_id)
+      if (newSessionId) loadOrders(newSessionId)
     } catch (err: any) {
       alert(err.message || 'Could not place order')
     } finally {
@@ -163,7 +186,10 @@ export default function TablePage() {
   }
 
   async function handleCallWaiter() {
-    if (!tableInfo?.session_id) return
+    if (!tableInfo?.session_id) {
+      alert('Please place an order first')
+      return
+    }
     try {
       await supabase.rpc('call_waiter', { p_session_id: tableInfo.session_id })
       alert('Waiter has been notified!')
@@ -173,7 +199,10 @@ export default function TablePage() {
   }
 
   async function handleRequestBill() {
-    if (!tableInfo?.session_id) return
+    if (!tableInfo?.session_id) {
+      alert('Please place an order first')
+      return
+    }
     try {
       await supabase.rpc('request_bill', { p_session_id: tableInfo.session_id })
       alert('Bill has been requested!')
@@ -234,7 +263,12 @@ export default function TablePage() {
           {orders.map((o) => (
             <div key={o.id} className={styles.orderCard}>
               <div className={styles.orderHeader}>
-                <span className={styles.kotLabel}>KOT #{o.kot_number}</span>
+                <div>
+                  <span className={styles.kotLabel}>KOT #{o.kot_number}</span>
+                  <span className={styles.orderSource}>
+                    {o.source === 'customer' ? `  ${o.placed_by_name || 'You'}` : `  Waiter: ${o.placed_by_name ?? ''}`}
+                  </span>
+                </div>
                 <span className={`${styles.orderStatus} ${styles[`status_${o.status}`] ?? ''}`}>
                   {o.status}
                 </span>
@@ -273,9 +307,43 @@ export default function TablePage() {
               </div>
             ))}
           </div>
-          <button className={styles.placeOrderBtn} onClick={handlePlaceOrder} disabled={placing}>
-            {placing ? 'Placing…' : `Place order — ${formatMoney(cartTotal)}`}
+          <button className={styles.placeOrderBtn} onClick={handlePlaceOrderClick} disabled={placing}>
+            {placing ? 'Placing...' : `Place order — ${formatMoney(cartTotal)}`}
           </button>
+        </div>
+      )}
+
+      {/* Customer name modal */}
+      {showNameModal && (
+        <div className={styles.modalOverlay}>
+          <div className={styles.modal}>
+            <h3 className={styles.modalTitle}>Your details</h3>
+            <p className={styles.modalSubtitle}>So the kitchen knows who you are</p>
+            <input
+              className={styles.modalInput}
+              placeholder="Your name"
+              value={customerName}
+              onChange={(e) => setCustomerName(e.target.value)}
+              autoFocus
+            />
+            <input
+              className={styles.modalInput}
+              placeholder="Mobile number (optional)"
+              value={customerPhone}
+              onChange={(e) => setCustomerPhone(e.target.value)}
+              type="tel"
+            />
+            <div className={styles.modalButtons}>
+              <button className={styles.modalCancel} onClick={() => setShowNameModal(false)}>Cancel</button>
+              <button
+                className={styles.modalConfirm}
+                onClick={doPlaceOrder}
+                disabled={!customerName.trim()}
+              >
+                Place order
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

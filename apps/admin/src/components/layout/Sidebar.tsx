@@ -11,27 +11,44 @@ const ROLE_LABEL: Record<StaffProfile['role'], string> = {
   kitchen: 'Kitchen',
 }
 
-export function Sidebar({ profile }: { profile: StaffProfile }) {
+export function Sidebar({ profile, onNavigate }: { profile: StaffProfile; onNavigate: () => void }) {
   const items = NAV_ITEMS.filter((item) => item.roles.includes(profile.role))
 
   return (
     <aside className="flex h-svh w-64 shrink-0 flex-col border-r bg-sidebar text-sidebar-foreground">
-      <div className="border-b px-4 py-4">
-        <p className="font-semibold leading-tight">Spice Route Kitchen</p>
-        <p className="text-xs text-muted-foreground">{ROLE_LABEL[profile.role]}</p>
+      <div className="border-b bg-[#FFF7F2] px-4 py-5">
+        <div className="flex items-center gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#E8713A] shadow-sm">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M17 8h1a4 4 0 1 1 0 8h-1" />
+              <path d="M3 8h14v9a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4Z" />
+              <line x1="6" x2="6" y1="2" y2="4" />
+              <line x1="10" x2="10" y1="2" y2="4" />
+              <line x1="14" x2="14" y1="2" y2="4" />
+            </svg>
+          </div>
+          <div>
+            <p className="font-bold text-[15px] leading-tight text-foreground">Aroma Cafe</p>
+            <p className="text-xs text-[#E8713A] font-medium tracking-wide">PUSHKAR</p>
+          </div>
+        </div>
+        <div className="mt-3 rounded-lg bg-white/70 px-3 py-1.5 text-xs text-muted-foreground">
+          {ROLE_LABEL[profile.role]} Dashboard
+        </div>
       </div>
-      <nav className="flex-1 space-y-1 overflow-y-auto p-2">
+      <nav className="flex-1 space-y-0.5 overflow-y-auto p-2 pt-3">
         {items.map((item) => (
           <NavLink
             key={item.to}
             to={item.to}
             end={item.to === '/'}
+            onClick={onNavigate}
             className={({ isActive }) =>
               cn(
-                'block rounded-md px-3 py-2 text-sm transition-colors',
+                'block rounded-lg px-3 py-2.5 text-sm transition-colors',
                 isActive
-                  ? 'bg-sidebar-accent text-sidebar-accent-foreground font-medium'
-                  : 'text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
+                  ? 'bg-[#FFF0E8] text-[#E8713A] font-semibold'
+                  : 'text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
               )
             }
           >
@@ -39,10 +56,6 @@ export function Sidebar({ profile }: { profile: StaffProfile }) {
           </NavLink>
         ))}
       </nav>
-      <div className="border-t p-3">
-        <p className="truncate text-sm font-medium">{profile.name}</p>
-        <p className="truncate text-xs text-muted-foreground">{profile.phone}</p>
-      </div>
     </aside>
   )
 }

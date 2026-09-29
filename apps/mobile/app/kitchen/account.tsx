@@ -3,6 +3,8 @@ import { Alert, Pressable, StyleSheet, Text, View } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
 import { useAuth } from '../../src/context/AuthContext'
 
+const ORANGE = '#E8713A'
+
 export default function KitchenAccountScreen() {
   const { profile, signOut } = useAuth()
 
@@ -33,13 +35,20 @@ export default function KitchenAccountScreen() {
           <Text style={styles.roleText}>Kitchen</Text>
         </View>
         <View style={styles.phoneRow}>
-          <Ionicons name="call-outline" size={14} color="#9ca3af" />
+          <Ionicons name="call-outline" size={14} color="#999" />
           <Text style={styles.phone}>{profile?.phone}</Text>
         </View>
       </View>
 
+      <View style={styles.infoCard}>
+        <View style={styles.infoRow}>
+          <Ionicons name="cafe-outline" size={18} color={ORANGE} />
+          <Text style={styles.infoText}>Aroma Cafe Pushkar</Text>
+        </View>
+      </View>
+
       <Pressable style={styles.signOutBtn} onPress={handleSignOut}>
-        <Ionicons name="log-out-outline" size={20} color="#fff" />
+        <Ionicons name="log-out-outline" size={20} color="#ef4444" />
         <Text style={styles.signOutText}>Sign out</Text>
       </Pressable>
     </View>
@@ -47,50 +56,76 @@ export default function KitchenAccountScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f8f9fa', padding: 16 },
+  container: { flex: 1, backgroundColor: '#fafafa', padding: 16 },
   card: {
     backgroundColor: '#fff',
-    borderRadius: 16,
+    borderRadius: 18,
     padding: 28,
     alignItems: 'center',
     borderWidth: 1,
     borderColor: '#f0f0f0',
   },
   avatarCircle: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: '#111',
+    width: 68,
+    height: 68,
+    borderRadius: 34,
+    backgroundColor: ORANGE,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 12,
+    shadowColor: ORANGE,
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 4,
   },
   avatarText: { fontSize: 28, fontWeight: '700', color: '#fff' },
-  name: { fontSize: 20, fontWeight: '700', color: '#111' },
+  name: { fontSize: 20, fontWeight: '700', color: '#1a1a1a' },
   roleBadge: {
-    backgroundColor: '#f3f4f6',
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-    borderRadius: 6,
+    backgroundColor: '#FFF0E8',
+    paddingHorizontal: 14,
+    paddingVertical: 5,
+    borderRadius: 8,
     marginTop: 6,
   },
-  roleText: { fontSize: 13, fontWeight: '600', color: '#6b7280' },
+  roleText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: ORANGE,
+    textTransform: 'capitalize',
+  },
   phoneRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
     marginTop: 12,
   },
-  phone: { fontSize: 14, color: '#9ca3af' },
+  phone: { fontSize: 14, color: '#999' },
+  infoCard: {
+    backgroundColor: '#fff',
+    borderRadius: 14,
+    padding: 16,
+    marginTop: 12,
+    borderWidth: 1,
+    borderColor: '#f0f0f0',
+  },
+  infoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  infoText: { fontSize: 15, fontWeight: '600', color: '#1a1a1a' },
   signOutBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
     marginTop: 24,
-    backgroundColor: '#ef4444',
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#fecaca',
     paddingVertical: 14,
-    borderRadius: 12,
+    borderRadius: 14,
   },
-  signOutText: { color: '#fff', fontSize: 16, fontWeight: '700' },
+  signOutText: { color: '#ef4444', fontSize: 16, fontWeight: '700' },
 })

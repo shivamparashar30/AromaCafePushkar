@@ -82,13 +82,13 @@ export function BillsPage() {
   return (
     <div className="space-y-4">
       <div>
-        <h1 className="text-2xl font-semibold">Bills</h1>
+        <h1 className="text-xl font-semibold sm:text-2xl">Bills</h1>
         <p className="text-sm text-muted-foreground">Every bill, filterable by date and status.</p>
       </div>
 
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         <Select value={preset} onValueChange={setPreset}>
-          <SelectTrigger className="w-40">
+          <SelectTrigger className="w-32 sm:w-40">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -99,7 +99,7 @@ export function BillsPage() {
           </SelectContent>
         </Select>
         <Select value={status} onValueChange={(v) => setStatus(v as BillStatus | 'all')}>
-          <SelectTrigger className="w-40">
+          <SelectTrigger className="w-32 sm:w-40">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -114,39 +114,41 @@ export function BillsPage() {
       {isLoading ? (
         <p className="text-sm text-muted-foreground">Loading bills…</p>
       ) : (
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Bill no.</TableHead>
-              <TableHead>Table</TableHead>
-              <TableHead>Waiter</TableHead>
-              <TableHead>Date</TableHead>
-              <TableHead>Total</TableHead>
-              <TableHead>Status</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {bills.map((b) => (
-              <TableRow key={b.id} className="cursor-pointer" onClick={() => setSelectedBillId(b.id)}>
-                <TableCell>{b.bill_no ?? '—'}</TableCell>
-                <TableCell>{b.table_name}</TableCell>
-                <TableCell>{b.waiter_name ?? '—'}</TableCell>
-                <TableCell>{new Date(b.created_at).toLocaleString()}</TableCell>
-                <TableCell>{formatMoney(b.total)}</TableCell>
-                <TableCell>
-                  <Badge variant={STATUS_VARIANT[b.status]}>{b.status}</Badge>
-                </TableCell>
-              </TableRow>
-            ))}
-            {bills.length === 0 && (
+        <div className="overflow-x-auto">
+          <Table>
+            <TableHeader>
               <TableRow>
-                <TableCell colSpan={6} className="text-center text-sm text-muted-foreground">
-                  No bills in this range.
-                </TableCell>
+                <TableHead>Bill no.</TableHead>
+                <TableHead>Table</TableHead>
+                <TableHead className="hidden sm:table-cell">Waiter</TableHead>
+                <TableHead className="hidden md:table-cell">Date</TableHead>
+                <TableHead>Total</TableHead>
+                <TableHead>Status</TableHead>
               </TableRow>
-            )}
-          </TableBody>
-        </Table>
+            </TableHeader>
+            <TableBody>
+              {bills.map((b) => (
+                <TableRow key={b.id} className="cursor-pointer" onClick={() => setSelectedBillId(b.id)}>
+                  <TableCell>{b.bill_no ?? '—'}</TableCell>
+                  <TableCell>{b.table_name}</TableCell>
+                  <TableCell className="hidden sm:table-cell">{b.waiter_name ?? '—'}</TableCell>
+                  <TableCell className="hidden md:table-cell whitespace-nowrap">{new Date(b.created_at).toLocaleString()}</TableCell>
+                  <TableCell>{formatMoney(b.total)}</TableCell>
+                  <TableCell>
+                    <Badge variant={STATUS_VARIANT[b.status]}>{b.status}</Badge>
+                  </TableCell>
+                </TableRow>
+              ))}
+              {bills.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={6} className="text-center text-sm text-muted-foreground">
+                    No bills in this range.
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </div>
       )}
 
       <Sheet open={!!selectedBillId} onOpenChange={(open) => !open && setSelectedBillId(null)}>

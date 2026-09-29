@@ -102,7 +102,7 @@ export async function fetchSessionOrders(sessionId: string): Promise<Order[]> {
   const { data, error } = await supabase
     .from('orders')
     .select(`
-      id, kot_number, status, source, created_at,
+      id, kot_number, status, source, placed_by_name, created_at,
       table_session:table_sessions(table:tables(name)),
       order_items(
         id, qty, unit_price, notes, status, station,
@@ -121,6 +121,7 @@ export async function fetchSessionOrders(sessionId: string): Promise<Order[]> {
     kot_number: o.kot_number,
     status: o.status,
     source: o.source,
+    placed_by_name: (o as any).placed_by_name ?? null,
     created_at: o.created_at,
     table_name: (o.table_session as any)?.table?.name ?? '',
     items: (o.order_items ?? []).map((i: any) => ({
@@ -165,7 +166,7 @@ export async function fetchKitchenOrders(): Promise<Order[]> {
   const { data, error } = await supabase
     .from('orders')
     .select(`
-      id, kot_number, status, source, created_at,
+      id, kot_number, status, source, placed_by_name, created_at,
       table_session:table_sessions(table:tables(name)),
       order_items(
         id, qty, unit_price, notes, status, station,
@@ -184,6 +185,7 @@ export async function fetchKitchenOrders(): Promise<Order[]> {
     kot_number: o.kot_number,
     status: o.status,
     source: o.source,
+    placed_by_name: (o as any).placed_by_name ?? null,
     created_at: o.created_at,
     table_name: (o.table_session as any)?.table?.name ?? '',
     items: (o.order_items ?? []).map((i: any) => ({

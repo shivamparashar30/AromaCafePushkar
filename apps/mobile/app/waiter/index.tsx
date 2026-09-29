@@ -15,9 +15,13 @@ import { claimTable, fetchWaiterTables } from '../../src/lib/api'
 import { supabase } from '../../src/lib/supabase'
 import type { TableWithSession } from '../../src/lib/types'
 
+const ORANGE = '#E8713A'
+const ORANGE_LIGHT = '#FFF7F2'
+const ORANGE_BORDER = '#FDDCC8'
+
 const STATUS_CONFIG: Record<string, { color: string; bg: string; label: string }> = {
   free: { color: '#15803d', bg: '#dcfce7', label: 'Free' },
-  occupied: { color: '#1d4ed8', bg: '#dbeafe', label: 'Occupied' },
+  occupied: { color: ORANGE, bg: '#FFF0E8', label: 'Occupied' },
   bill_requested: { color: '#b45309', bg: '#fef3c7', label: 'Bill' },
   reserved: { color: '#dc2626', bg: '#fee2e2', label: 'Reserved' },
 }
@@ -103,7 +107,7 @@ export default function WaiterTablesScreen() {
         </View>
         {isMine && (
           <View style={styles.assignedRow}>
-            <Ionicons name="checkmark-circle" size={14} color="#3b82f6" />
+            <Ionicons name="checkmark-circle" size={14} color={ORANGE} />
             <Text style={styles.assignedLabel}>Your table</Text>
           </View>
         )}
@@ -116,7 +120,7 @@ export default function WaiterTablesScreen() {
       <FlatList
         data={[...myTables, ...otherTables]}
         keyExtractor={(t) => t.id}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={ORANGE} />}
         contentContainerStyle={styles.list}
         ListHeaderComponent={
           myTables.length > 0 ? (
@@ -133,7 +137,7 @@ export default function WaiterTablesScreen() {
         )}
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
-            <Ionicons name="grid-outline" size={48} color="#d1d5db" />
+            <Ionicons name="grid-outline" size={48} color="#ddd" />
             <Text style={styles.emptyText}>No tables found</Text>
           </View>
         }
@@ -143,12 +147,12 @@ export default function WaiterTablesScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f8f9fa' },
+  container: { flex: 1, backgroundColor: '#fafafa' },
   list: { paddingVertical: 8 },
   sectionHeader: {
     fontSize: 12,
     fontWeight: '700',
-    color: '#9ca3af',
+    color: '#999',
     paddingHorizontal: 16,
     paddingTop: 16,
     paddingBottom: 6,
@@ -159,14 +163,14 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     marginHorizontal: 12,
     marginVertical: 4,
-    borderRadius: 12,
+    borderRadius: 14,
     padding: 16,
     borderWidth: 1,
     borderColor: '#f0f0f0',
   },
   tableCardMine: {
-    borderColor: '#bfdbfe',
-    backgroundColor: '#fafbff',
+    borderColor: ORANGE_BORDER,
+    backgroundColor: ORANGE_LIGHT,
   },
   tableRow: {
     flexDirection: 'row',
@@ -174,8 +178,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   tableInfo: { flex: 1 },
-  tableName: { fontSize: 17, fontWeight: '700', color: '#111' },
-  tableMeta: { fontSize: 13, color: '#9ca3af', marginTop: 3 },
+  tableName: { fontSize: 17, fontWeight: '700', color: '#1a1a1a' },
+  tableMeta: { fontSize: 13, color: '#999', marginTop: 3 },
   statusBadge: {
     paddingHorizontal: 10,
     paddingVertical: 5,
@@ -189,7 +193,7 @@ const styles = StyleSheet.create({
     gap: 4,
     marginTop: 8,
   },
-  assignedLabel: { fontSize: 12, color: '#3b82f6', fontWeight: '600' },
+  assignedLabel: { fontSize: 12, color: ORANGE, fontWeight: '600' },
   emptyContainer: { alignItems: 'center', marginTop: 80 },
-  emptyText: { fontSize: 15, color: '#9ca3af', marginTop: 12 },
+  emptyText: { fontSize: 15, color: '#999', marginTop: 12 },
 })

@@ -26,6 +26,7 @@ export interface Order {
   kot_number: number
   status: string
   source: string
+  placed_by_name: string | null
   created_at: string
   table_name: string
   items: OrderItem[]

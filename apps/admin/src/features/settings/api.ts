@@ -18,18 +18,30 @@ export interface OutletSettings {
       enabled?: boolean
       percent?: number
     }
+    tax?: {
+      enabled?: boolean
+      percent?: number
+    }
+    default_discount?: {
+      enabled?: boolean
+      percent?: number
+    }
     bill_prefix?: string
   } | null
 }
 
-export async function fetchOutletSettings(): Promise<OutletSettings> {
-  const { data: profile } = await supabase.from('profiles').select('outlet_id').single()
-  if (!profile) throw new Error('No profile found for current user')
+export async function fetchOutletSettings(outletId?: string): Promise<OutletSettings> {
+  let oid = outletId
+  if (!oid) {
+    const { data: profile } = await supabase.from('profiles').select('outlet_id').single()
+    if (!profile) throw new Error('No profile found for current user')
+    oid = profile.outlet_id
+  }
 
   const { data, error } = await supabase
     .from('outlets')
     .select('id, name, address, gstin, fssai, settings')
-    .eq('id', profile.outlet_id)
+    .eq('id', oid)
     .single()
 
   if (error) throw error

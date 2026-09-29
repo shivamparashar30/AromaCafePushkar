@@ -121,9 +121,9 @@ export function MenuPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-start justify-between">
+      <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
-          <h1 className="text-2xl font-semibold">Menu management</h1>
+          <h1 className="text-xl font-semibold sm:text-2xl">Menu management</h1>
           <p className="text-sm text-muted-foreground">Categories, items, variants and add-ons.</p>
         </div>
         {canEdit && (
@@ -172,91 +172,93 @@ export function MenuPage() {
         </div>
       )}
 
-      <Table>
-        <TableHeader>
-          <TableRow>
-            {canEdit && <TableHead className="w-8" />}
-            <TableHead>Name</TableHead>
-            <TableHead>Category</TableHead>
-            <TableHead>Price</TableHead>
-            <TableHead>Type</TableHead>
-            <TableHead>In stock</TableHead>
-            {canEdit && <TableHead />}
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {visibleItems.map((item) => (
-            <TableRow key={item.id} className={!item.is_active ? 'opacity-50' : undefined}>
-              {canEdit && (
+      <div className="overflow-x-auto">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              {canEdit && <TableHead className="w-8" />}
+              <TableHead>Name</TableHead>
+              <TableHead className="hidden sm:table-cell">Category</TableHead>
+              <TableHead>Price</TableHead>
+              <TableHead className="hidden sm:table-cell">Type</TableHead>
+              <TableHead>In stock</TableHead>
+              {canEdit && <TableHead />}
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {visibleItems.map((item) => (
+              <TableRow key={item.id} className={!item.is_active ? 'opacity-50' : undefined}>
+                {canEdit && (
+                  <TableCell>
+                    <Checkbox
+                      checked={selectedIds.includes(item.id)}
+                      onCheckedChange={(checked) =>
+                        setSelectedIds((prev) =>
+                          checked ? [...prev, item.id] : prev.filter((id) => id !== item.id),
+                        )
+                      }
+                    />
+                  </TableCell>
+                )}
+                <TableCell className="font-medium">{item.name}</TableCell>
+                <TableCell className="hidden sm:table-cell">{categoryName(item.category_id)}</TableCell>
+                <TableCell>{formatMoney(item.price)}</TableCell>
+                <TableCell className="hidden sm:table-cell">
+                  <Badge variant="outline">{item.food_type.replace('_', '-')}</Badge>
+                </TableCell>
                 <TableCell>
-                  <Checkbox
-                    checked={selectedIds.includes(item.id)}
-                    onCheckedChange={(checked) =>
-                      setSelectedIds((prev) =>
-                        checked ? [...prev, item.id] : prev.filter((id) => id !== item.id),
-                      )
-                    }
+                  <Switch
+                    checked={item.in_stock}
+                    disabled={!canEdit}
+                    onCheckedChange={(checked) => toggleStockMutation.mutate({ id: item.id, in_stock: checked })}
                   />
                 </TableCell>
-              )}
-              <TableCell className="font-medium">{item.name}</TableCell>
-              <TableCell>{categoryName(item.category_id)}</TableCell>
-              <TableCell>{formatMoney(item.price)}</TableCell>
-              <TableCell>
-                <Badge variant="outline">{item.food_type.replace('_', '-')}</Badge>
-              </TableCell>
-              <TableCell>
-                <Switch
-                  checked={item.in_stock}
-                  disabled={!canEdit}
-                  onCheckedChange={(checked) => toggleStockMutation.mutate({ id: item.id, in_stock: checked })}
-                />
-              </TableCell>
-              {canEdit && (
-                <TableCell className="space-x-2 text-right">
-                  <Button
-                    variant="link"
-                    size="sm"
-                    className="h-auto p-0"
-                    onClick={() => {
-                      setEditingItem(item)
-                      setFormOpen(true)
-                    }}
-                  >
-                    Edit
-                  </Button>
-                  <AlertDialog>
-                    <AlertDialogTrigger asChild>
-                      <Button variant="link" size="sm" className="h-auto p-0 text-destructive">
-                        Delete
-                      </Button>
-                    </AlertDialogTrigger>
-                    <AlertDialogContent>
-                      <AlertDialogHeader>
-                        <AlertDialogTitle>Delete "{item.name}"?</AlertDialogTitle>
-                        <AlertDialogDescription>This can't be undone.</AlertDialogDescription>
-                      </AlertDialogHeader>
-                      <AlertDialogFooter>
-                        <AlertDialogCancel>Cancel</AlertDialogCancel>
-                        <AlertDialogAction onClick={() => deleteItemMutation.mutate(item.id)}>
+                {canEdit && (
+                  <TableCell className="space-x-2 text-right">
+                    <Button
+                      variant="link"
+                      size="sm"
+                      className="h-auto p-0"
+                      onClick={() => {
+                        setEditingItem(item)
+                        setFormOpen(true)
+                      }}
+                    >
+                      Edit
+                    </Button>
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button variant="link" size="sm" className="h-auto p-0 text-destructive">
                           Delete
-                        </AlertDialogAction>
-                      </AlertDialogFooter>
-                    </AlertDialogContent>
-                  </AlertDialog>
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>Delete "{item.name}"?</AlertDialogTitle>
+                          <AlertDialogDescription>This can't be undone.</AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>Cancel</AlertDialogCancel>
+                          <AlertDialogAction onClick={() => deleteItemMutation.mutate(item.id)}>
+                            Delete
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                  </TableCell>
+                )}
+              </TableRow>
+            ))}
+            {visibleItems.length === 0 && (
+              <TableRow>
+                <TableCell colSpan={7} className="text-center text-sm text-muted-foreground">
+                  No items in this category yet.
                 </TableCell>
-              )}
-            </TableRow>
-          ))}
-          {visibleItems.length === 0 && (
-            <TableRow>
-              <TableCell colSpan={7} className="text-center text-sm text-muted-foreground">
-                No items in this category yet.
-              </TableCell>
-            </TableRow>
-          )}
-        </TableBody>
-      </Table>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+      </div>
 
       <ItemFormDialog
         open={formOpen}

@@ -5,23 +5,21 @@ import {
   FlatList,
   Pressable,
   RefreshControl,
-  SafeAreaView,
   StyleSheet,
   Text,
   View,
 } from 'react-native'
+import { Ionicons } from '@expo/vector-icons'
 import { useAuth } from '../../src/context/AuthContext'
 import { claimTable, fetchWaiterTables } from '../../src/lib/api'
 import { supabase } from '../../src/lib/supabase'
 import type { TableWithSession } from '../../src/lib/types'
 
-const STATUS_COLORS: Record<string, string> = {
-  free: '#22c55e',
-  occupied: '#3b82f6',
-  bill_requested: '#f59e0b',
-  paid: '#a855f7',
-  cleaning: '#6b7280',
-  reserved: '#ef4444',
+const STATUS_CONFIG: Record<string, { color: string; bg: string; label: string }> = {
+  free: { color: '#15803d', bg: '#dcfce7', label: 'Free' },
+  occupied: { color: '#1d4ed8', bg: '#dbeafe', label: 'Occupied' },
+  bill_requested: { color: '#b45309', bg: '#fef3c7', label: 'Bill' },
+  reserved: { color: '#dc2626', bg: '#fee2e2', label: 'Reserved' },
 }
 
 export default function WaiterTablesScreen() {
@@ -43,7 +41,6 @@ export default function WaiterTablesScreen() {
     load()
   }, [load])
 
-  // Realtime subscription for table changes
   useEffect(() => {
     const channel = supabase
       .channel('waiter-tables')
@@ -73,7 +70,7 @@ export default function WaiterTablesScreen() {
     if (table.session_id) {
       router.push(`/waiter/session/${table.session_id}`)
     } else if (table.status === 'free') {
-      Alert.alert('Claim table?', `Claim ${table.name} and start a session?`, [
+      Alert.alert('Start session?', `Claim ${table.name} and start a new session?`, [
         { text: 'Cancel', style: 'cancel' },
         { text: 'Claim', onPress: () => handleClaim(table.id) },
       ])
@@ -83,12 +80,44 @@ export default function WaiterTablesScreen() {
   const myTables = tables.filter((t) => t.waiter_id === profile?.id)
   const otherTables = tables.filter((t) => t.waiter_id !== profile?.id)
 
+  function renderTable(item: TableWithSession) {
+    const config = STATUS_CONFIG[item.status] ?? { color: '#666', bg: '#f3f4f6', label: item.status }
+    const isMine = item.waiter_id === profile?.id
+
+    return (
+      <Pressable
+        style={[styles.tableCard, isMine && styles.tableCardMine]}
+        onPress={() => handleTablePress(item)}
+      >
+        <View style={styles.tableRow}>
+          <View style={styles.tableInfo}>
+            <Text style={styles.tableName}>{item.name}</Text>
+            <Text style={styles.tableMeta}>
+              {item.floor_name} · {item.capacity} seats
+              {item.guest_count ? ` · ${item.guest_count} guests` : ''}
+            </Text>
+          </View>
+          <View style={[styles.statusBadge, { backgroundColor: config.bg }]}>
+            <Text style={[styles.statusText, { color: config.color }]}>{config.label}</Text>
+          </View>
+        </View>
+        {isMine && (
+          <View style={styles.assignedRow}>
+            <Ionicons name="checkmark-circle" size={14} color="#3b82f6" />
+            <Text style={styles.assignedLabel}>Your table</Text>
+          </View>
+        )}
+      </Pressable>
+    )
+  }
+
   return (
-    <SafeAreaView style={styles.container}>
+    <View style={styles.container}>
       <FlatList
         data={[...myTables, ...otherTables]}
         keyExtractor={(t) => t.id}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}
+        contentContainerStyle={styles.list}
         ListHeaderComponent={
           myTables.length > 0 ? (
             <Text style={styles.sectionHeader}>My tables ({myTables.length})</Text>
@@ -99,37 +128,68 @@ export default function WaiterTablesScreen() {
             {index === myTables.length && otherTables.length > 0 && (
               <Text style={styles.sectionHeader}>Other tables</Text>
             )}
-            <Pressable style={styles.tableCard} onPress={() => handleTablePress(item)}>
-              <View style={styles.tableRow}>
-                <View>
-                  <Text style={styles.tableName}>{item.name}</Text>
-                  <Text style={styles.tableFloor}>{item.floor_name} &middot; {item.capacity} seats</Text>
-                </View>
-                <View style={[styles.statusBadge, { backgroundColor: STATUS_COLORS[item.status] ?? '#999' }]}>
-                  <Text style={styles.statusText}>{item.status.replace('_', ' ')}</Text>
-                </View>
-              </View>
-              {item.waiter_id === profile?.id && (
-                <Text style={styles.assignedLabel}>Assigned to you</Text>
-              )}
-            </Pressable>
+            {renderTable(item)}
           </>
         )}
-        ListEmptyComponent={<Text style={styles.empty}>No tables found.</Text>}
+        ListEmptyComponent={
+          <View style={styles.emptyContainer}>
+            <Ionicons name="grid-outline" size={48} color="#d1d5db" />
+            <Text style={styles.emptyText}>No tables found</Text>
+          </View>
+        }
       />
-    </SafeAreaView>
+    </View>
   )
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f5f5f5' },
-  sectionHeader: { fontSize: 13, fontWeight: '600', color: '#888', paddingHorizontal: 16, paddingTop: 16, paddingBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5 },
-  tableCard: { backgroundColor: '#fff', marginHorizontal: 12, marginVertical: 4, borderRadius: 10, padding: 14, elevation: 1, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 4, shadowOffset: { width: 0, height: 1 } },
-  tableRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  tableName: { fontSize: 16, fontWeight: '600' },
-  tableFloor: { fontSize: 13, color: '#888', marginTop: 2 },
-  statusBadge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
-  statusText: { fontSize: 11, fontWeight: '600', color: '#fff', textTransform: 'capitalize' },
-  assignedLabel: { fontSize: 12, color: '#3b82f6', fontWeight: '500', marginTop: 6 },
-  empty: { textAlign: 'center', color: '#888', marginTop: 40, fontSize: 14 },
+  container: { flex: 1, backgroundColor: '#f8f9fa' },
+  list: { paddingVertical: 8 },
+  sectionHeader: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#9ca3af',
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 6,
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+  },
+  tableCard: {
+    backgroundColor: '#fff',
+    marginHorizontal: 12,
+    marginVertical: 4,
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#f0f0f0',
+  },
+  tableCardMine: {
+    borderColor: '#bfdbfe',
+    backgroundColor: '#fafbff',
+  },
+  tableRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  tableInfo: { flex: 1 },
+  tableName: { fontSize: 17, fontWeight: '700', color: '#111' },
+  tableMeta: { fontSize: 13, color: '#9ca3af', marginTop: 3 },
+  statusBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
+    marginLeft: 12,
+  },
+  statusText: { fontSize: 12, fontWeight: '700' },
+  assignedRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 8,
+  },
+  assignedLabel: { fontSize: 12, color: '#3b82f6', fontWeight: '600' },
+  emptyContainer: { alignItems: 'center', marginTop: 80 },
+  emptyText: { fontSize: 15, color: '#9ca3af', marginTop: 12 },
 })

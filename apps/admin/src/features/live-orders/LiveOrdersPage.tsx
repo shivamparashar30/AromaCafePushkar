@@ -15,6 +15,7 @@ import {
   claimTable,
   createBill,
   fetchSessionDetail,
+  freeTable,
   markPaid,
   placeOrder,
   voidBill,
@@ -82,6 +83,15 @@ export function LiveOrdersPage() {
     onError: (e: Error) => toast.error(e.message ?? 'Could not cancel item'),
   })
 
+  const freeTableMutation = useMutation({
+    mutationFn: freeTable,
+    onSuccess: () => {
+      invalidateAll()
+      toast.success('Table is now free')
+    },
+    onError: (e: Error) => toast.error(e.message ?? 'Could not free table'),
+  })
+
   if (!floors) return <p className="text-sm text-muted-foreground">Loading tables…</p>
 
   const allTables = floors.flatMap((f) => f.tables.map((t) => ({ ...t, floorName: f.name })))
@@ -134,7 +144,22 @@ export function LiveOrdersPage() {
                 <Button onClick={() => claimMutation.mutate(selectedTable.id)}>Open table</Button>
               )}
               {detail.session && detail.bill?.status !== 'paid' && (
-                <Button onClick={() => setPickerOpen(true)}>Add items</Button>
+                <div className="flex gap-2">
+                  <Button onClick={() => setPickerOpen(true)}>Add items</Button>
+                  {canManage &&
+                    (detail.orders.length === 0 ||
+                      detail.orders.every((o) =>
+                        o.items.every((i) => i.status === 'cancelled'),
+                      )) && (
+                      <Button
+                        variant="outline"
+                        className="text-destructive"
+                        onClick={() => freeTableMutation.mutate(detail.session!.id)}
+                      >
+                        Free table
+                      </Button>
+                    )}
+                </div>
               )}
             </div>
 
@@ -172,7 +197,7 @@ export function LiveOrdersPage() {
                   onMarkPaid={async () => {
                     await markPaid(detail.bill!.id)
                     invalidateAll()
-                    toast.success('Bill paid — table freed for cleaning')
+                    toast.success('Bill paid — table is now free')
                   }}
                   onVoidBill={async (reason) => {
                     await voidBill(detail.bill!.id, reason)

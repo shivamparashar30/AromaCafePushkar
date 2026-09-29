@@ -155,6 +155,10 @@ async function handleCreate(
     userPayload.email_confirm = true;
     userPayload.password = password;
   } else {
+    // Field roles get a synthetic email (phone@phone.restro.internal) so email-based
+    // sign-in works without needing the Phone auth provider enabled
+    userPayload.email = phone + "@phone.restro.internal";
+    userPayload.email_confirm = true;
     // Field roles get a random password (they use PIN login)
     userPayload.password = crypto.randomUUID() + crypto.randomUUID();
   }
@@ -249,10 +253,17 @@ async function handleUpdate(
 
   // Update auth.users phone if changed
   if (phone) {
-    await admin.auth.admin.updateUserById(staff_id, {
+    const updatePayload: Record<string, unknown> = {
       phone,
       phone_confirm: true,
-    });
+    };
+    // If user has a synthetic email, update it to match the new phone
+    const { data: authUser } = await admin.auth.admin.getUserById(staff_id);
+    if (authUser?.user?.email?.endsWith("@phone.restro.internal")) {
+      updatePayload.email = phone + "@phone.restro.internal";
+      updatePayload.email_confirm = true;
+    }
+    await admin.auth.admin.updateUserById(staff_id, updatePayload);
   }
 
   return jsonResponse({ ok: true });

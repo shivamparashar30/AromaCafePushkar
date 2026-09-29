@@ -179,3 +179,8 @@ export async function voidBill(billId: string, reason: string) {
   const { error } = await supabase.rpc('void_bill', { p_bill_id: billId, p_reason: reason })
   if (error) throw error
 }
+
+export async function freeTable(sessionId: string) {
+  const { error } = await supabase.rpc('leave_table', { p_session_id: sessionId })
+  if (error) throw error
+}

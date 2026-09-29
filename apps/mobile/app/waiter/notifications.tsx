@@ -3,23 +3,23 @@ import {
   FlatList,
   Pressable,
   RefreshControl,
-  SafeAreaView,
   StyleSheet,
   Text,
   View,
 } from 'react-native'
+import { Ionicons } from '@expo/vector-icons'
 import { useAuth } from '../../src/context/AuthContext'
 import { acknowledgeNotification, fetchNotifications } from '../../src/lib/api'
 import { supabase } from '../../src/lib/supabase'
 
-const EVENT_LABELS: Record<string, string> = {
-  order_ready: 'Order ready',
-  call_waiter: 'Call waiter',
-  bill_requested: 'Bill requested',
-  new_unassigned_table: 'New table',
-  item_cancelled: 'Item cancelled',
-  order_waiting_too_long: 'Order waiting',
-  booking_arriving: 'Booking arriving',
+const EVENT_CONFIG: Record<string, { icon: string; color: string; label: string }> = {
+  order_ready: { icon: 'checkmark-circle', color: '#22c55e', label: 'Order ready' },
+  call_waiter: { icon: 'hand-left', color: '#3b82f6', label: 'Call waiter' },
+  bill_requested: { icon: 'receipt', color: '#f59e0b', label: 'Bill requested' },
+  new_unassigned_table: { icon: 'grid', color: '#8b5cf6', label: 'New table' },
+  item_cancelled: { icon: 'close-circle', color: '#ef4444', label: 'Item cancelled' },
+  order_waiting_too_long: { icon: 'time', color: '#ef4444', label: 'Order waiting' },
+  booking_arriving: { icon: 'calendar', color: '#06b6d4', label: 'Booking arriving' },
 }
 
 export default function NotificationsScreen() {
@@ -61,35 +61,83 @@ export default function NotificationsScreen() {
     setRefreshing(false)
   }
 
+  function timeAgo(dateStr: string): string {
+    const mins = Math.floor((Date.now() - new Date(dateStr).getTime()) / 60000)
+    if (mins < 1) return 'Just now'
+    if (mins < 60) return `${mins}m ago`
+    const hrs = Math.floor(mins / 60)
+    if (hrs < 24) return `${hrs}h ago`
+    return `${Math.floor(hrs / 24)}d ago`
+  }
+
   return (
-    <SafeAreaView style={styles.container}>
+    <View style={styles.container}>
       <FlatList
         data={notifications}
         keyExtractor={(n) => n.id}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}
-        renderItem={({ item }) => (
-          <View style={styles.card}>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.event}>{EVENT_LABELS[item.event] ?? item.event}</Text>
-              <Text style={styles.time}>{new Date(item.created_at).toLocaleTimeString()}</Text>
+        contentContainerStyle={styles.list}
+        renderItem={({ item }) => {
+          const config = EVENT_CONFIG[item.event] ?? { icon: 'alert-circle', color: '#9ca3af', label: item.event }
+          return (
+            <View style={styles.card}>
+              <View style={[styles.iconCircle, { backgroundColor: config.color + '18' }]}>
+                <Ionicons name={config.icon as any} size={20} color={config.color} />
+              </View>
+              <View style={styles.content}>
+                <Text style={styles.event}>{config.label}</Text>
+                <Text style={styles.time}>{timeAgo(item.created_at)}</Text>
+              </View>
+              <Pressable style={styles.dismissBtn} onPress={() => handleAcknowledge(item.id)}>
+                <Ionicons name="close" size={18} color="#9ca3af" />
+              </Pressable>
             </View>
-            <Pressable style={styles.ackBtn} onPress={() => handleAcknowledge(item.id)}>
-              <Text style={styles.ackBtnText}>Dismiss</Text>
-            </Pressable>
+          )
+        }}
+        ListEmptyComponent={
+          <View style={styles.emptyContainer}>
+            <Ionicons name="notifications-off-outline" size={48} color="#d1d5db" />
+            <Text style={styles.emptyText}>No new alerts</Text>
           </View>
-        )}
-        ListEmptyComponent={<Text style={styles.empty}>No new alerts.</Text>}
+        }
       />
-    </SafeAreaView>
+    </View>
   )
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f5f5f5' },
-  card: { backgroundColor: '#fff', marginHorizontal: 12, marginVertical: 4, borderRadius: 10, padding: 14, flexDirection: 'row', alignItems: 'center', elevation: 1, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 4, shadowOffset: { width: 0, height: 1 } },
-  event: { fontSize: 15, fontWeight: '600' },
-  time: { fontSize: 12, color: '#888', marginTop: 2 },
-  ackBtn: { backgroundColor: '#eee', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6 },
-  ackBtnText: { fontSize: 12, fontWeight: '600', color: '#666' },
-  empty: { textAlign: 'center', color: '#888', marginTop: 40, fontSize: 14 },
+  container: { flex: 1, backgroundColor: '#f8f9fa' },
+  list: { paddingVertical: 8 },
+  card: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    marginHorizontal: 12,
+    marginVertical: 3,
+    borderRadius: 12,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: '#f0f0f0',
+  },
+  iconCircle: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  content: { flex: 1 },
+  event: { fontSize: 15, fontWeight: '600', color: '#111' },
+  time: { fontSize: 12, color: '#9ca3af', marginTop: 2 },
+  dismissBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#f3f4f6',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyContainer: { alignItems: 'center', marginTop: 80 },
+  emptyText: { fontSize: 15, color: '#9ca3af', marginTop: 12 },
 })

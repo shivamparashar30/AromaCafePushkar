@@ -92,11 +92,16 @@ Deno.serve(async (req) => {
     });
     if (passwordError) throw passwordError;
 
+    // Look up the user's email (may be synthetic like +91xxx@phone.restro.internal)
+    const { data: authUserData, error: authUserError } = await admin.auth.admin.getUserById(profile.id);
+    if (authUserError || !authUserData?.user?.email) throw authUserError ?? new Error("No email on auth user");
+
     const anon = createClient(supabaseUrl, anonKey, {
       auth: { autoRefreshToken: false, persistSession: false },
     });
+    // Use email-based sign-in to avoid needing the Phone auth provider enabled
     const { data: signInData, error: signInError } = await anon.auth.signInWithPassword({
-      phone,
+      email: authUserData.user.email,
       password: oneTimePassword,
     });
     if (signInError) throw signInError;

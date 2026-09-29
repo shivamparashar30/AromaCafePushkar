@@ -52,7 +52,7 @@ export function EmployeeFormDialog({ open, onOpenChange, editing, onSubmitCreate
       setPassword('')
     } else if (next) {
       setName('')
-      setPhone('')
+      setPhone('+91')
       setRole('waiter')
       setPin('')
       setEmail('')

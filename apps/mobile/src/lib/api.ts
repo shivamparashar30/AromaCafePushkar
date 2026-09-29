@@ -81,6 +81,11 @@ export async function fetchMenuForOrdering(): Promise<MenuItem[]> {
   }))
 }
 
+export async function leaveTable(sessionId: string) {
+  const { error } = await supabase.rpc('leave_table', { p_session_id: sessionId })
+  if (error) throw error
+}
+
 export async function placeOrder(
   sessionId: string,
   items: { item_id: string; variant_id?: string; qty?: number; notes?: string; addon_ids?: string[] }[],

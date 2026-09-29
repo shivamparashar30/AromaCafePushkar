@@ -152,8 +152,18 @@ export function BillPanel({
             </div>
 
             <div className="flex items-center justify-between border-t pt-3">
-              <Button disabled={busy || remaining !== 0} onClick={() => run(onMarkPaid)}>
-                Mark paid
+              <Button
+                disabled={busy}
+                onClick={() =>
+                  run(async () => {
+                    if (remaining > 0) {
+                      await onAddPayment('cash', remaining, '')
+                    }
+                    await onMarkPaid()
+                  })
+                }
+              >
+                {remaining > 0 ? `Pay ₹${(remaining / 100).toFixed(0)} & close` : 'Mark paid'}
               </Button>
               <Button
                 variant="ghost"

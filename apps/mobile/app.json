@@ -5,10 +5,20 @@
     "version": "0.1.0",
     "orientation": "portrait",
     "scheme": "restro",
-    "platforms": ["android", "ios"],
-    "plugins": ["expo-router", "expo-secure-store"],
+    "platforms": [
+      "android",
+      "ios"
+    ],
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      "expo-asset"
+    ],
     "experiments": {
       "typedRoutes": true
+    },
+    "android": {
+      "package": "com.neshama.restromobile"
     }
   }
 }

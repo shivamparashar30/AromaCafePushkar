@@ -37,6 +37,10 @@ const Toaster = ({ ...props }: ToasterProps) => {
         } as React.CSSProperties
       }
       toastOptions={{
+        // Every toast here is a notification, not something to act on, so it clears
+        // itself. Sonner's default is 4s; 3s keeps the panel from lingering over the
+        // bill controls underneath.
+        duration: 3000,
         classNames: {
           toast: "cn-toast",
         },

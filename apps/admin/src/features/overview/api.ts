@@ -53,7 +53,14 @@ export async function fetchOverview(): Promise<OverviewData> {
     whatsappFailedRes,
   ] = await Promise.all([
     supabase.from('bills').select('total, status, created_at').gte('created_at', since),
-    supabase.from('tables').select('id, name, status, floor_id, floors(name, sort_order)'),
+    // Counter slots are billing plumbing, not seats: they must not appear on the floor
+    // map or skew the free/occupied counts. Retired tables are excluded for the same
+    // reason they are everywhere else -- the row only survives for historical bills.
+    supabase
+      .from('tables')
+      .select('id, name, status, floor_id, floors(name, sort_order)')
+      .eq('is_counter', false)
+      .is('deleted_at', null),
     supabase.from('table_sessions').select('guest_count').gte('opened_at', since),
     supabase.from('orders').select('id, status').gte('created_at', since),
     supabase

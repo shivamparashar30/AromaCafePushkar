@@ -1,6 +1,8 @@
 import { supabase } from '@/lib/supabase'
 import type { Database } from '@/lib/database.types'
 
+export type PaymentMode = Database['public']['Enums']['payment_mode']
+
 export type BillStatus = Database['public']['Enums']['bill_status']
 
 export interface BillRow {
@@ -14,7 +16,12 @@ export interface BillRow {
   total: number
   created_at: string
   table_name: string
-  waiter_name: string | null
+  /** The table has since been retired — history still names it, flagged in the UI. */
+  table_deleted: boolean
+  floor_name: string | null
+  /** Staff attached to the session: a waiter for a table, the cashier or manager
+   *  who raised it for a counter bill. */
+  staff_name: string | null
 }
 
 export interface BillFilters {
@@ -27,7 +34,7 @@ export async function fetchBills(filters: BillFilters): Promise<BillRow[]> {
   let query = supabase
     .from('bills')
     .select(
-      'id, bill_no, status, subtotal, discount, service_charge, tax_total, total, created_at, table_sessions(tables(name), profiles(name))',
+      'id, bill_no, status, subtotal, discount, service_charge, tax_total, total, created_at, table_sessions(tables(name, deleted_at, floors(name)), profiles(name))',
     )
     .order('created_at', { ascending: false })
     .limit(200)
@@ -50,14 +57,16 @@ export async function fetchBills(filters: BillFilters): Promise<BillRow[]> {
     total: b.total,
     created_at: b.created_at,
     table_name: b.table_sessions?.tables?.name ?? '—',
-    waiter_name: b.table_sessions?.profiles?.name ?? null,
+    table_deleted: !!b.table_sessions?.tables?.deleted_at,
+    floor_name: b.table_sessions?.tables?.floors?.name ?? null,
+    staff_name: b.table_sessions?.profiles?.name ?? null,
   }))
 }
 
 export interface BillDetail extends BillRow {
   round_off: number
   void_reason: string | null
-  payments: { id: string; mode: string; amount: number; reference: string | null }[]
+  payments: { id: string; mode: PaymentMode; amount: number; reference: string | null }[]
   items: { id: string; name: string; variant_name: string | null; qty: number; unit_price: number; status: string }[]
 }
 
@@ -65,7 +74,7 @@ export async function fetchBillDetail(billId: string): Promise<BillDetail> {
   const { data: bill, error } = await supabase
     .from('bills')
     .select(
-      'id, bill_no, status, subtotal, discount, service_charge, tax_total, round_off, total, void_reason, created_at, session_id, table_sessions(tables(name), profiles(name))',
+      'id, bill_no, status, subtotal, discount, service_charge, tax_total, round_off, total, void_reason, created_at, session_id, table_sessions(tables(name, deleted_at, floors(name)), profiles(name))',
     )
     .eq('id', billId)
     .single()
@@ -103,7 +112,9 @@ export async function fetchBillDetail(billId: string): Promise<BillDetail> {
     void_reason: bill.void_reason,
     created_at: bill.created_at,
     table_name: bill.table_sessions?.tables?.name ?? '—',
-    waiter_name: bill.table_sessions?.profiles?.name ?? null,
+    table_deleted: !!bill.table_sessions?.tables?.deleted_at,
+    floor_name: bill.table_sessions?.tables?.floors?.name ?? null,
+    staff_name: bill.table_sessions?.profiles?.name ?? null,
     payments: payments ?? [],
     items,
   }
@@ -111,5 +122,42 @@ export async function fetchBillDetail(billId: string): Promise<BillDetail> {
 
 export async function voidBillWithReason(billId: string, reason: string) {
   const { error } = await supabase.rpc('void_bill', { p_bill_id: billId, p_reason: reason })
+  if (error) throw error
+}
+
+export interface WalkinBillResult {
+  bill_id: string
+  session_id: string
+  table_id: string
+  table_name: string
+  total: number
+}
+
+/**
+ * Counter / takeaway sale: someone orders at the counter without sitting at a table.
+ * The server provisions a counter slot, opens a session, sends the KOT and raises the
+ * bill in one call, so the order still reaches the kitchen and gets a real bill number.
+ */
+export async function createWalkinBill(
+  items: { item_id: string; variant_id?: string; qty: number; addon_ids?: string[] }[],
+  customerName?: string,
+  customerPhone?: string,
+): Promise<WalkinBillResult> {
+  const { data, error } = await supabase.rpc('create_walkin_bill', {
+    p_items: items,
+    p_customer_name: customerName || undefined,
+    p_customer_phone: customerPhone || undefined,
+  })
+  if (error) throw error
+  return data as unknown as WalkinBillResult
+}
+
+/** Attaches a customer to a session so the sale rolls into their total spend. */
+export async function setSessionCustomer(sessionId: string, name: string, phone: string) {
+  const { error } = await supabase.rpc('set_session_customer', {
+    p_session_id: sessionId,
+    p_name: name,
+    p_phone: phone,
+  })
   if (error) throw error
 }

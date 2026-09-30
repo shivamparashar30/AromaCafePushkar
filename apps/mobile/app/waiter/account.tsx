@@ -1,3 +1,5 @@
+import { useEffect, useState } from 'react'
+import { fetchOutletName } from '../../src/lib/api'
 import { router } from 'expo-router'
 import { Alert, Pressable, StyleSheet, Text, View } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
@@ -6,6 +8,11 @@ import { useAuth } from '../../src/context/AuthContext'
 const ORANGE = '#E8713A'
 
 export default function AccountScreen() {
+  const [outletName, setOutletName] = useState('')
+
+  useEffect(() => {
+    fetchOutletName().then(setOutletName).catch(() => {})
+  }, [])
   const { profile, signOut } = useAuth()
 
   async function handleSignOut() {
@@ -43,7 +50,7 @@ export default function AccountScreen() {
       <View style={styles.infoCard}>
         <View style={styles.infoRow}>
           <Ionicons name="cafe-outline" size={18} color={ORANGE} />
-          <Text style={styles.infoText}>Aroma Cafe Pushkar</Text>
+          <Text style={styles.infoText}>{outletName || '—'}</Text>
         </View>
       </View>
 

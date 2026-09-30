@@ -260,6 +260,7 @@ export function MenuPage() {
         </Table>
       </div>
 
+
       <ItemFormDialog
         open={formOpen}
         onOpenChange={setFormOpen}

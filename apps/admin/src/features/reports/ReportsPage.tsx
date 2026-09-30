@@ -1,8 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { useMemo, useState } from 'react'
 import {
-  Bar,
-  BarChart,
   CartesianGrid,
   Line,
   LineChart,
@@ -80,7 +78,7 @@ export function ReportsPage() {
               <SelectItem value="day">By day</SelectItem>
               <SelectItem value="month">By month</SelectItem>
               <SelectItem value="year">By year</SelectItem>
-              <SelectItem value="waiter">By waiter</SelectItem>
+              <SelectItem value="waiter">By staff</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -160,7 +158,7 @@ export function ReportsPage() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>{groupBy === 'waiter' ? 'Waiter' : 'Period'}</TableHead>
+                    <TableHead>{groupBy === 'waiter' ? 'Served by' : 'Period'}</TableHead>
                     <TableHead className="text-right">Bills</TableHead>
                     <TableHead className="text-right hidden sm:table-cell">Gross</TableHead>
                     <TableHead className="text-right hidden sm:table-cell">Discounts</TableHead>
@@ -250,7 +248,9 @@ export function ReportsPage() {
                       <TableCell className="font-medium">{t.table_name}</TableCell>
                       <TableCell className="text-right">{t.bills}</TableCell>
                       <TableCell className="text-right">{formatMoney(t.revenue)}</TableCell>
-                      <TableCell className="text-right">{t.avg_turnaround_minutes} min</TableCell>
+                      <TableCell className="text-right tabular-nums">
+                        {Number(t.avg_turnaround_minutes ?? 0).toFixed(2)} min
+                      </TableCell>
                     </TableRow>
                   ))}
                   {tableSales.length === 0 && (

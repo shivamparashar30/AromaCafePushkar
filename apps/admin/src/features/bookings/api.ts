@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase'
+import { getMyOutletId } from '@/lib/outlet'
 import type { Database } from '@/lib/database.types'
 
 export type BookingStatus = Database['public']['Enums']['booking_status']
@@ -50,11 +51,10 @@ export interface BookingInput {
 }
 
 export async function createBooking(input: BookingInput) {
-  const { data: outlet } = await supabase.from('profiles').select('outlet_id').single()
-  if (!outlet) throw new Error('No profile found for current user')
+  const outletId = await getMyOutletId()
 
   const { error } = await supabase.from('bookings').insert({
-    outlet_id: outlet.outlet_id,
+    outlet_id: outletId,
     name: input.name,
     phone: input.phone,
     party_size: input.party_size,

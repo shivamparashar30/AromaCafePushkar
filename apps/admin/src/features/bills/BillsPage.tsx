@@ -13,8 +13,12 @@ import {
 } from '@/components/ui/sheet'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { useAuth } from '@/features/auth/AuthProvider'
+import { useEnumOptions } from '@/lib/enums'
 import { formatMoney } from '@/lib/money'
 import { useRealtimeInvalidate } from '@/lib/realtime'
+import { BillPanel } from '@/features/live-orders/BillPanel'
+import { addPayment, applyDiscount, markPaid, voidBill } from '@/features/live-orders/api'
+import { CounterBillDialog } from './CounterBillDialog'
 import { fetchBillDetail, fetchBills, voidBillWithReason, type BillFilters, type BillStatus } from './api'
 
 const BILLS_KEY = ['bills'] as const
@@ -48,6 +52,15 @@ function presetRange(preset: string): { from?: string; to?: string } {
 export function BillsPage() {
   const { profile } = useAuth()
   const canVoid = profile?.role === 'super_admin' || profile?.role === 'manager'
+  // Counter sales are a till action, so cashiers get it too.
+  const canBill = canVoid || profile?.role === 'cashier'
+  const [counterOpen, setCounterOpen] = useState(false)
+  const billStatuses = useEnumOptions('bill_status')
+
+  function refreshDetail() {
+    queryClient.invalidateQueries({ queryKey: BILLS_KEY })
+    queryClient.invalidateQueries({ queryKey: ['bill-detail', selectedBillId] })
+  }
   const queryClient = useQueryClient()
 
   const [preset, setPreset] = useState('7d')
@@ -81,9 +94,14 @@ export function BillsPage() {
 
   return (
     <div className="space-y-4">
-      <div>
-        <h1 className="text-xl font-semibold sm:text-2xl">Bills</h1>
-        <p className="text-sm text-muted-foreground">Every bill, filterable by date and status.</p>
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <h1 className="text-xl font-semibold sm:text-2xl">Bills</h1>
+          <p className="text-sm text-muted-foreground">Every bill, filterable by date and status.</p>
+        </div>
+        {canBill && (
+          <Button onClick={() => setCounterOpen(true)}>New counter bill</Button>
+        )}
       </div>
 
       <div className="flex flex-wrap gap-2">
@@ -104,9 +122,9 @@ export function BillsPage() {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All statuses</SelectItem>
-            <SelectItem value="open">Open</SelectItem>
-            <SelectItem value="paid">Paid</SelectItem>
-            <SelectItem value="void">Void</SelectItem>
+            {billStatuses.map((s) => (
+              <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
+            ))}
           </SelectContent>
         </Select>
       </div>
@@ -120,7 +138,7 @@ export function BillsPage() {
               <TableRow>
                 <TableHead>Bill no.</TableHead>
                 <TableHead>Table</TableHead>
-                <TableHead className="hidden sm:table-cell">Waiter</TableHead>
+                <TableHead className="hidden sm:table-cell">Served by</TableHead>
                 <TableHead className="hidden md:table-cell">Date</TableHead>
                 <TableHead>Total</TableHead>
                 <TableHead>Status</TableHead>
@@ -130,8 +148,20 @@ export function BillsPage() {
               {bills.map((b) => (
                 <TableRow key={b.id} className="cursor-pointer" onClick={() => setSelectedBillId(b.id)}>
                   <TableCell>{b.bill_no ?? '—'}</TableCell>
-                  <TableCell>{b.table_name}</TableCell>
-                  <TableCell className="hidden sm:table-cell">{b.waiter_name ?? '—'}</TableCell>
+                  <TableCell>
+                    <span className={b.table_deleted ? 'text-destructive' : undefined}>
+                      {b.table_name}
+                    </span>
+                    {b.floor_name && (
+                      <span className="block text-xs text-muted-foreground">{b.floor_name}</span>
+                    )}
+                    {b.table_deleted && (
+                      <span className="block text-xs font-medium text-destructive">
+                        deleted table
+                      </span>
+                    )}
+                  </TableCell>
+                  <TableCell className="hidden sm:table-cell">{b.staff_name ?? '—'}</TableCell>
                   <TableCell className="hidden md:table-cell whitespace-nowrap">{new Date(b.created_at).toLocaleString()}</TableCell>
                   <TableCell>{formatMoney(b.total)}</TableCell>
                   <TableCell>
@@ -151,6 +181,12 @@ export function BillsPage() {
         </div>
       )}
 
+      <CounterBillDialog
+        open={counterOpen}
+        onOpenChange={setCounterOpen}
+        onDone={() => queryClient.invalidateQueries({ queryKey: BILLS_KEY })}
+      />
+
       <Sheet open={!!selectedBillId} onOpenChange={(open) => !open && setSelectedBillId(null)}>
         <SheetContent className="w-full sm:max-w-md">
           {detail && (
@@ -158,7 +194,15 @@ export function BillsPage() {
               <SheetHeader>
                 <SheetTitle>{detail.bill_no ?? 'Open bill'}</SheetTitle>
                 <SheetDescription>
-                  {detail.table_name} · {new Date(detail.created_at).toLocaleString()}
+                  <span className={detail.table_deleted ? 'text-destructive' : undefined}>
+                    {detail.table_name}
+                  </span>
+                  {detail.floor_name ? ` · ${detail.floor_name}` : ''}
+                  {detail.table_deleted && (
+                    <span className="font-medium text-destructive"> · deleted table</span>
+                  )}
+                  {' · '}
+                  {new Date(detail.created_at).toLocaleString()}
                 </SheetDescription>
               </SheetHeader>
               <div className="space-y-4 px-4">
@@ -173,14 +217,55 @@ export function BillsPage() {
                     </div>
                   ))}
                 </div>
-                <dl className="space-y-1 border-t pt-3 text-sm">
-                  <Row label="Subtotal" value={formatMoney(detail.subtotal)} />
-                  <Row label="Discount" value={`- ${formatMoney(detail.discount)}`} />
-                  <Row label="Service charge" value={formatMoney(detail.service_charge)} />
-                  <Row label="Tax" value={formatMoney(detail.tax_total)} />
-                  <Row label="Round off" value={formatMoney(detail.round_off)} />
-                  <Row label="Total" value={formatMoney(detail.total)} bold />
-                </dl>
+                {detail.status === 'open' ? (
+                  // An open bill is still actionable — discount, take payment, settle or
+                  // void — so it gets the same panel the live-orders screen uses rather
+                  // than a read-only summary that dead-ends.
+                  <BillPanel
+                    bill={{
+                      id: detail.id,
+                      subtotal: detail.subtotal,
+                      discount: detail.discount,
+                      service_charge: detail.service_charge,
+                      tax_total: detail.tax_total,
+                      round_off: detail.round_off,
+                      total: detail.total,
+                      status: detail.status,
+                      bill_no: detail.bill_no,
+                    }}
+                    payments={detail.payments}
+                    canManage={canBill}
+                    hasItems
+                    onCreateBill={async () => {}}
+                    onApplyDiscount={async (paise, reason) => {
+                      await applyDiscount(detail.id, paise, reason)
+                      refreshDetail()
+                    }}
+                    onAddPayment={async (mode, paise, reference) => {
+                      await addPayment(detail.id, mode, paise, reference)
+                      refreshDetail()
+                    }}
+                    onMarkPaid={async () => {
+                      await markPaid(detail.id)
+                      toast.success('Bill settled')
+                      refreshDetail()
+                    }}
+                    onVoidBill={async (reason) => {
+                      await voidBill(detail.id, reason)
+                      toast.success('Bill voided')
+                      refreshDetail()
+                    }}
+                  />
+                ) : (
+                  <dl className="space-y-1 border-t pt-3 text-sm">
+                    <Row label="Subtotal" value={formatMoney(detail.subtotal)} />
+                    <Row label="Discount" value={`- ${formatMoney(detail.discount)}`} />
+                    <Row label="Service charge" value={formatMoney(detail.service_charge)} />
+                    <Row label="Tax" value={formatMoney(detail.tax_total)} />
+                    <Row label="Round off" value={formatMoney(detail.round_off)} />
+                    <Row label="Total" value={formatMoney(detail.total)} bold />
+                  </dl>
+                )}
                 {detail.payments.length > 0 && (
                   <div className="border-t pt-3 text-sm">
                     <p className="mb-1 font-medium">Payments</p>

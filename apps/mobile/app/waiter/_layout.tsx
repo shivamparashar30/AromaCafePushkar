@@ -1,4 +1,5 @@
-import { Redirect, Tabs } from 'expo-router'
+import { Redirect, Tabs, router } from 'expo-router'
+import { Pressable, StyleSheet } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Ionicons } from '@expo/vector-icons'
 import { useAuth } from '../../src/context/AuthContext'
@@ -12,6 +13,18 @@ export default function WaiterLayout() {
   if (!profile) return <Redirect href="/login" />
 
   const tabBarHeight = 60 + insets.bottom
+
+  function headerRight() {
+    return (
+      <Pressable
+        style={styles.qrButton}
+        onPress={() => router.push('/waiter/scanner')}
+        hitSlop={8}
+      >
+        <Ionicons name="qr-code-outline" size={22} color={ORANGE} />
+      </Pressable>
+    )
+  }
 
   return (
     <Tabs
@@ -55,6 +68,7 @@ export default function WaiterLayout() {
         options={{
           title: 'Tables',
           headerTitle: `Hi, ${profile.name}`,
+          headerRight,
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="grid-outline" size={size} color={color} />
           ),
@@ -79,6 +93,13 @@ export default function WaiterLayout() {
         }}
       />
       <Tabs.Screen
+        name="scanner"
+        options={{
+          href: null,
+          headerShown: false,
+        }}
+      />
+      <Tabs.Screen
         name="session/[id]"
         options={{
           href: null,
@@ -87,3 +108,17 @@ export default function WaiterLayout() {
     </Tabs>
   )
 }
+
+const styles = StyleSheet.create({
+  qrButton: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    backgroundColor: '#fff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+    borderWidth: 1,
+    borderColor: '#FDDCC8',
+  },
+})

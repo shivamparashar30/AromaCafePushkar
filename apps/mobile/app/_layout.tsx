@@ -21,7 +21,7 @@ function AppSplash({ onReady }: { onReady: () => void }) {
       <View style={splashStyles.logoCircle}>
         <Ionicons name="cafe" size={44} color="#fff" />
       </View>
-      <Text style={splashStyles.title}>Aroma Cafe</Text>
+      <Text style={splashStyles.title}>Restaurant</Text>
       <Text style={splashStyles.subtitle}>Pushkar</Text>
     </View>
   )

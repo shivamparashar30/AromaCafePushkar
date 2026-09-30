@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -38,28 +38,23 @@ export function EmployeeFormDialog({ open, onOpenChange, editing, onSubmitCreate
   const [pin, setPin] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
   const [saving, setSaving] = useState(false)
 
   const isOffice = OFFICE_ROLES.includes(role)
 
-  function handleOpenChange(next: boolean) {
-    if (next && editing) {
-      setName(editing.name)
-      setPhone(editing.phone)
-      setRole(editing.role)
-      setPin('')
-      setEmail('')
-      setPassword('')
-    } else if (next) {
-      setName('')
-      setPhone('+91')
-      setRole('waiter')
-      setPin('')
-      setEmail('')
-      setPassword('')
-    }
-    onOpenChange(next)
-  }
+  // Seeded from an effect, not from onOpenChange: Radix fires that only for user-driven
+  // opens, and this dialog is opened by setting `open` directly, so editing a staff
+  // member showed a blank form.
+  useEffect(() => {
+    if (!open) return
+    setName(editing?.name ?? '')
+    setPhone(editing?.phone ?? '+91')
+    setRole(editing?.role ?? 'waiter')
+    setPin('')
+    setEmail('')
+    setPassword('')
+  }, [open, editing])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -89,7 +84,7 @@ export function EmployeeFormDialog({ open, onOpenChange, editing, onSubmitCreate
   }
 
   return (
-    <Dialog open={open} onOpenChange={handleOpenChange}>
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>{editing ? 'Edit employee' : 'Add employee'}</DialogTitle>
@@ -128,7 +123,21 @@ export function EmployeeFormDialog({ open, onOpenChange, editing, onSubmitCreate
               </div>
               <div className="space-y-2">
                 <Label htmlFor="emp-password">Password</Label>
-                <Input id="emp-password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
+                <div className="relative">
+                  <Input id="emp-password" type={showPassword ? 'text' : 'password'} value={password} onChange={(e) => setPassword(e.target.value)} required className="pr-10" />
+                  <button
+                    type="button"
+                    className="absolute right-0 top-0 h-full px-3 text-muted-foreground hover:text-foreground"
+                    onClick={() => setShowPassword((v) => !v)}
+                    tabIndex={-1}
+                  >
+                    {showPassword ? (
+                      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" x2="23" y1="1" y2="23"/><path d="M14.12 14.12a3 3 0 1 1-4.24-4.24"/></svg>
+                    ) : (
+                      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                    )}
+                  </button>
+                </div>
               </div>
             </>
           )}

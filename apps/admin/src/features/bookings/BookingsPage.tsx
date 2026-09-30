@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -16,12 +16,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Textarea } from '@/components/ui/textarea'
 import { useAuth } from '@/features/auth/AuthProvider'
+import { useEnumOptions } from '@/lib/enums'
 import { useRealtimeInvalidate } from '@/lib/realtime'
 import {
   createBooking,
   fetchBookings,
   updateBookingStatus,
-  type Booking,
   type BookingFilters,
   type BookingSource,
   type BookingStatus,
@@ -50,6 +50,7 @@ export function BookingsPage() {
   const queryClient = useQueryClient()
 
   const [status, setStatus] = useState<BookingStatus | 'all'>('all')
+  const bookingStatuses = useEnumOptions('booking_status')
   const [formOpen, setFormOpen] = useState(false)
 
   const filters: BookingFilters = useMemo(() => ({ ...defaultDateRange(), status }), [status])
@@ -97,10 +98,9 @@ export function BookingsPage() {
           <SelectTrigger className="w-40"><SelectValue placeholder="Status" /></SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All statuses</SelectItem>
-            <SelectItem value="booked">Booked</SelectItem>
-            <SelectItem value="arrived">Arrived</SelectItem>
-            <SelectItem value="no_show">No show</SelectItem>
-            <SelectItem value="cancelled">Cancelled</SelectItem>
+            {bookingStatuses.map((s) => (
+              <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
+            ))}
           </SelectContent>
         </Select>
       </div>
@@ -195,18 +195,19 @@ function BookingFormDialog({
   const [source, setSource] = useState<BookingSource>('phone')
   const [notes, setNotes] = useState('')
   const [saving, setSaving] = useState(false)
+  const bookingSources = useEnumOptions('booking_source')
 
-  function handleOpenChange(next: boolean) {
-    if (next) {
-      setName('')
-      setPhone('')
-      setPartySize('2')
-      setStartsAt('')
-      setSource('phone')
-      setNotes('')
-    }
-    onOpenChange(next)
-  }
+  // Same reason as the other dialogs: onOpenChange does not fire when `open` is driven
+  // from the parent, so the reset has to be an effect.
+  useEffect(() => {
+    if (!open) return
+    setName('')
+    setPhone('')
+    setPartySize('2')
+    setStartsAt('')
+    setSource('phone')
+    setNotes('')
+  }, [open])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -227,7 +228,7 @@ function BookingFormDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={handleOpenChange}>
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>New booking</DialogTitle>
@@ -251,9 +252,9 @@ function BookingFormDialog({
               <Select value={source} onValueChange={(v) => setSource(v as BookingSource)}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="phone">Phone</SelectItem>
-                  <SelectItem value="walk_in">Walk-in</SelectItem>
-                  <SelectItem value="website">Website</SelectItem>
+                  {bookingSources.map((s) => (
+                    <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>

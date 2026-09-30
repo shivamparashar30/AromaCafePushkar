@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase'
+import { getMyOutletId } from '@/lib/outlet'
 import type { Database } from '@/lib/database.types'
 
 export type FoodType = Database['public']['Enums']['food_type']
@@ -46,9 +47,7 @@ export interface TaxGroup {
 }
 
 async function currentOutletId(): Promise<string> {
-  const { data, error } = await supabase.from('profiles').select('outlet_id').single()
-  if (error || !data) throw new Error('No profile found for current user')
-  return data.outlet_id
+  return getMyOutletId()
 }
 
 export async function fetchCategories(): Promise<Category[]> {

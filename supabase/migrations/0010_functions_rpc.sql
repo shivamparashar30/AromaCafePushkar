@@ -908,6 +908,7 @@ declare
   v_paid bigint;
   v_bill_no text;
   v_table_id uuid;
+  v_customer_phone text;
 begin
   select * into v_bill from bills where id = p_bill_id and status = 'open' for update;
   if not found then raise exception 'Open bill not found'; end if;
@@ -932,7 +933,18 @@ begin
 
   select table_id into v_table_id from table_sessions where id = v_bill.session_id;
   update table_sessions set status = 'closed', closed_at = now() where id = v_bill.session_id;
-  update tables set status = 'cleaning' where id = v_table_id;
+  update tables set status = 'free' where id = v_table_id;
+
+  -- Update customer total_spend if session has a customer phone
+  select customer_phone into v_customer_phone
+  from table_sessions where id = v_bill.session_id;
+
+  if v_customer_phone is not null and v_customer_phone <> '' then
+    update customers
+    set total_spend = total_spend + v_bill.total
+    where outlet_id = v_bill.outlet_id
+      and phone = v_customer_phone;
+  end if;
 
   insert into audit_logs (outlet_id, actor_id, action, entity, entity_id, before, after)
   values (v_bill.outlet_id, auth_profile_id(), 'mark_paid', 'bills', v_bill.id, null,

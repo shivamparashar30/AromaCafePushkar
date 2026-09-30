@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import {
@@ -16,6 +16,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { useAuth } from '@/features/auth/AuthProvider'
 import { formatMoney } from '@/lib/money'
 import { useRealtimeInvalidate } from '@/lib/realtime'
+import { CustomerDetailSheet } from './CustomerDetailSheet'
 import { createCustomer, fetchCustomers, updateCustomer, type Customer, type CustomerInput } from './api'
 
 const CUSTOMERS_KEY = ['customers'] as const
@@ -31,6 +32,7 @@ export function CustomersPage() {
   const [formOpen, setFormOpen] = useState(false)
   const [editing, setEditing] = useState<Customer | null>(null)
   const [search, setSearch] = useState('')
+  const [detailId, setDetailId] = useState<string | null>(null)
 
   function invalidate() {
     queryClient.invalidateQueries({ queryKey: CUSTOMERS_KEY })
@@ -48,6 +50,8 @@ export function CustomersPage() {
     onError: () => toast.error('Could not update customer'),
   })
 
+  const totalSpend = customers.reduce((sum, c) => sum + Number(c.total_spend ?? 0), 0)
+
   const filtered = search
     ? customers.filter(
         (c) =>
@@ -63,7 +67,9 @@ export function CustomersPage() {
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
           <h1 className="text-xl font-semibold sm:text-2xl">Customers</h1>
-          <p className="text-sm text-muted-foreground">{customers.length} total customers.</p>
+          <p className="text-sm text-muted-foreground">
+            {customers.length} total customers · {formatMoney(totalSpend)} lifetime spend. Tap a row for their bills.
+          </p>
         </div>
         {canEdit && (
           <Button onClick={() => { setEditing(null); setFormOpen(true) }}>
@@ -85,19 +91,23 @@ export function CustomersPage() {
             <TableRow>
               <TableHead>Name</TableHead>
               <TableHead>Phone</TableHead>
-              <TableHead className="text-right hidden sm:table-cell">Visits</TableHead>
-              <TableHead className="text-right hidden sm:table-cell">Total spend</TableHead>
+              <TableHead className="text-right">Visits</TableHead>
+              <TableHead className="text-right">Total spend</TableHead>
               <TableHead className="hidden md:table-cell">WhatsApp</TableHead>
               {canEdit && <TableHead />}
             </TableRow>
           </TableHeader>
           <TableBody>
             {filtered.map((c) => (
-              <TableRow key={c.id}>
+              <TableRow
+                key={c.id}
+                className="cursor-pointer"
+                onClick={() => setDetailId(c.id)}
+              >
                 <TableCell className="font-medium">{c.name || '—'}</TableCell>
                 <TableCell>{c.phone}</TableCell>
-                <TableCell className="text-right hidden sm:table-cell">{c.visits}</TableCell>
-                <TableCell className="text-right hidden sm:table-cell">{formatMoney(c.total_spend)}</TableCell>
+                <TableCell className="text-right">{c.visits}</TableCell>
+                <TableCell className="text-right font-medium tabular-nums">{formatMoney(c.total_spend)}</TableCell>
                 <TableCell className="hidden md:table-cell">{c.whatsapp_opt_in ? 'Yes' : 'No'}</TableCell>
                 {canEdit && (
                   <TableCell className="text-right">
@@ -105,7 +115,7 @@ export function CustomersPage() {
                       variant="link"
                       size="sm"
                       className="h-auto p-0"
-                      onClick={() => { setEditing(c); setFormOpen(true) }}
+                      onClick={(e) => { e.stopPropagation(); setEditing(c); setFormOpen(true) }}
                     >
                       Edit
                     </Button>
@@ -123,6 +133,11 @@ export function CustomersPage() {
           </TableBody>
         </Table>
       </div>
+
+      <CustomerDetailSheet
+        customerId={detailId}
+        onOpenChange={(open) => { if (!open) setDetailId(null) }}
+      />
 
       <CustomerFormDialog
         open={formOpen}
@@ -153,18 +168,15 @@ function CustomerFormDialog({
   const [whatsapp, setWhatsapp] = useState(false)
   const [saving, setSaving] = useState(false)
 
-  function handleOpenChange(next: boolean) {
-    if (next && editing) {
-      setName(editing.name ?? '')
-      setPhone(editing.phone)
-      setWhatsapp(editing.whatsapp_opt_in)
-    } else if (next) {
-      setName('')
-      setPhone('')
-      setWhatsapp(false)
-    }
-    onOpenChange(next)
-  }
+  // Seeding used to happen inside onOpenChange, which Radix fires only for user-driven
+  // opens (trigger, Escape, overlay). The page opens this dialog by setting `open`
+  // directly, so that never ran and every edit showed a blank form with the toggle off.
+  useEffect(() => {
+    if (!open) return
+    setName(editing?.name ?? '')
+    setPhone(editing?.phone ?? '')
+    setWhatsapp(editing?.whatsapp_opt_in ?? false)
+  }, [open, editing])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -182,7 +194,7 @@ function CustomerFormDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={handleOpenChange}>
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>{editing ? 'Edit customer' : 'Add customer'}</DialogTitle>

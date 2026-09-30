@@ -1,5 +1,5 @@
-import { useLocalSearchParams, router, Stack } from 'expo-router'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useFocusEffect, useLocalSearchParams, router, Stack } from 'expo-router'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Alert,
   FlatList,
@@ -42,19 +42,59 @@ export default function SessionScreen() {
   const [submitting, setSubmitting] = useState(false)
   const [search, setSearch] = useState('')
   const [activeCategory, setActiveCategory] = useState<string | null>(null)
+  // Guards the close path: the waiter's own "Leave" also closes the session, and the
+  // realtime UPDATE for it would otherwise pop an alert about someone else's action.
+  const closedRef = useRef(false)
+  const tableNameRef = useRef('')
+  const closeGuardRef = useRef<((reason: 'paid' | 'freed') => void) | null>(null)
+  // Dishes with variants or add-ons need a choice before they can be priced; without
+  // this the waiter silently billed the base price for a Half/Full item.
+  const [optionsItem, setOptionsItem] = useState<MenuItem | null>(null)
+  const [pickedVariant, setPickedVariant] = useState<string | undefined>(undefined)
+  const [pickedAddons, setPickedAddons] = useState<string[]>([])
+
+  /**
+   * True when this session is no longer open, having already handed off to the close
+   * handler. The table can be settled or freed from admin at any moment, and the only
+   * row that changes is table_sessions.status — so nothing else on this screen would
+   * notice on its own.
+   */
+  const sessionEnded = useCallback(async () => {
+    if (!sessionId) return false
+    const { data: session } = await supabase
+      .from('table_sessions')
+      .select('status')
+      .eq('id', sessionId)
+      .maybeSingle()
+    if (!session || session.status === 'open') return false
+
+    // A settled table has a paid bill; a freed one does not. Saying the right thing
+    // matters — "Bill settled" on a table the manager simply cleared is a lie.
+    const { count } = await supabase
+      .from('bills')
+      .select('id', { count: 'exact', head: true })
+      .eq('session_id', sessionId)
+      .eq('status', 'paid')
+
+    closeGuardRef.current?.((count ?? 0) > 0 ? 'paid' : 'freed')
+    return true
+  }, [sessionId])
 
   const loadOrders = useCallback(async () => {
     if (!sessionId) return
     try {
+      if (await sessionEnded()) return
+
       const data = await fetchSessionOrders(sessionId)
       setOrders(data)
       if (data.length > 0 && data[0].table_name) {
         setTableName(data[0].table_name)
+        tableNameRef.current = data[0].table_name
       }
     } catch (err) {
       console.error('Failed to load orders', err)
     }
-  }, [sessionId])
+  }, [sessionId, sessionEnded])
 
   useEffect(() => {
     loadOrders()
@@ -67,24 +107,102 @@ export default function SessionScreen() {
         .eq('id', sessionId)
         .single()
         .then(({ data }) => {
-          if (data?.table) setTableName((data.table as any).name)
+          if (data?.table) {
+            setTableName((data.table as any).name)
+            tableNameRef.current = (data.table as any).name
+          }
         })
     }
   }, [loadOrders, sessionId])
 
+  // The session can end from somewhere else entirely -- a cashier marking the bill paid
+  // in admin, or a manager freeing the table -- and this screen would otherwise sit on a
+  // table that no longer exists, able to "add" orders to a closed session.
+  const handleSessionClosed = useCallback((reason: 'paid' | 'freed') => {
+    if (closedRef.current) return // the close can arrive twice; only act once
+    closedRef.current = true
+
+    setShowMenu(false)
+    setCart([])
+    router.replace('/waiter')
+    Alert.alert(
+      reason === 'paid' ? 'Bill settled' : 'Table freed',
+      reason === 'paid'
+        ? `${tableNameRef.current || 'This table'} has been paid and closed. It is free for the next guest.`
+        : `${tableNameRef.current || 'This table'} was cleared and is free for the next guest.`,
+    )
+  }, [])
+
   useEffect(() => {
+    closeGuardRef.current = handleSessionClosed
+  }, [handleSessionClosed])
+
+  // Realtime is the fast path, but it is not a guarantee: the socket can be asleep after
+  // the phone was pocketed, and the close event is a single UPDATE that is easy to miss.
+  // Nothing else on this screen would ever notice, so the waiter would sit on a dead
+  // table indefinitely. A slow poll makes the handoff certain.
+  useEffect(() => {
+    if (!sessionId) return
+    const timer = setInterval(() => { void sessionEnded() }, 15_000)
+    return () => clearInterval(timer)
+  }, [sessionId, sessionEnded])
+
+  // And check immediately whenever the screen comes back into focus.
+  useFocusEffect(
+    useCallback(() => {
+      void sessionEnded()
+    }, [sessionEnded]),
+  )
+
+  useEffect(() => {
+    if (!sessionId) return
+
     const channel = supabase
       .channel(`session-${sessionId}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, () => loadOrders())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'order_items' }, () => loadOrders())
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'table_sessions', filter: `id=eq.${sessionId}` },
+        (payload) => {
+          if ((payload.new as { status?: string })?.status === 'closed') {
+            handleSessionClosed('paid')
+          }
+        },
+      )
       .subscribe()
     return () => { supabase.removeChannel(channel) }
-  }, [sessionId, loadOrders])
+  }, [sessionId, loadOrders, handleSessionClosed])
 
   async function handleRefresh() {
     setRefreshing(true)
     await loadOrders()
     setRefreshing(false)
+  }
+
+  function hasOptions(item: MenuItem) {
+    return (item.variants?.length ?? 0) > 0 || (item.addon_groups?.length ?? 0) > 0
+  }
+
+  function handleAddPress(item: MenuItem) {
+    if (hasOptions(item)) {
+      setPickedVariant(undefined)
+      setPickedAddons([])
+      setOptionsItem(item)
+      return
+    }
+    addToCart(item)
+  }
+
+  function confirmOptions() {
+    if (!optionsItem) return
+    const variants = optionsItem.variants ?? []
+    if (variants.length > 0 && !pickedVariant) return
+    setCart((prev) => [
+      ...prev,
+      { item: optionsItem, qty: 1, variantId: pickedVariant, addonIds: pickedAddons },
+    ])
+    setOptionsItem(null)
   }
 
   function addToCart(item: MenuItem) {
@@ -171,26 +289,43 @@ export default function SessionScreen() {
   }
 
   function handleLeaveTable() {
+    // Tell the waiter why up front rather than letting the server refuse after the tap.
+    if (activeOrderCount > 0) {
+      Alert.alert(
+        "Can't free this table",
+        `This table has ${activeOrderCount} active order${activeOrderCount === 1 ? '' : 's'}. ` +
+          'Generate the bill and settle it, or cancel the orders first.',
+        [{ text: 'OK' }],
+      )
+      return
+    }
+
     Alert.alert(
-      'Leave table?',
-      'This will free up the table. You can only leave if there are no active orders.',
+      'Free this table?',
+      'The session will be closed and the table marked free for the next guest.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Leave',
+          text: 'Free table',
           style: 'destructive',
           onPress: async () => {
             try {
+              closedRef.current = true // our own close; skip the realtime alert
               await leaveTable(sessionId!)
               router.back()
             } catch (err: any) {
-              Alert.alert('Error', err.message || 'Could not leave table')
+              // The close never happened, so re-arm the guard for a real one later.
+              closedRef.current = false
+              Alert.alert("Can't free this table", err.message || 'Could not free the table')
             }
           },
         },
       ],
     )
   }
+
+  // Anything not cancelled still belongs to the table, so it blocks freeing it.
+  const activeOrderCount = orders.filter((o) => o.status !== 'cancelled').length
 
   const formatPrice = (paise: number) => `₹${(paise / 100).toFixed(0)}`
 
@@ -328,13 +463,15 @@ export default function SessionScreen() {
                       <Ionicons name="remove" size={18} color={ORANGE} />
                     </Pressable>
                     <Text style={styles.qtyText}>{qty}</Text>
-                    <Pressable onPress={() => addToCart(item)} style={styles.qtyBtn}>
+                    <Pressable onPress={() => handleAddPress(item)} style={styles.qtyBtn}>
                       <Ionicons name="add" size={18} color={ORANGE} />
                     </Pressable>
                   </View>
                 ) : (
-                  <Pressable onPress={() => addToCart(item)} style={styles.addBtn}>
-                    <Text style={styles.addBtnText}>Add</Text>
+                  <Pressable onPress={() => handleAddPress(item)} style={styles.addBtn}>
+                    <Text style={styles.addBtnText}>
+                      {hasOptions(item) ? 'Choose' : 'Add'}
+                    </Text>
                   </Pressable>
                 )}
               </View>
@@ -355,6 +492,88 @@ export default function SessionScreen() {
               </Text>
               <Ionicons name="arrow-forward" size={18} color="#fff" />
             </Pressable>
+          </View>
+        )}
+
+        {/* Variant / add-on picker */}
+        {optionsItem && (
+          <View style={styles.optionsOverlay}>
+            <View style={styles.optionsSheet}>
+              <Text style={styles.optionsTitle}>{optionsItem.name}</Text>
+
+              {/* A dish with several add-on groups can outgrow the sheet, so the choices
+                  scroll while the actions stay pinned and reachable. */}
+              <ScrollView
+                style={styles.optionsScroll}
+                contentContainerStyle={styles.optionsScrollContent}
+                keyboardShouldPersistTaps="handled"
+              >
+
+              {(optionsItem.variants ?? []).length > 0 && (
+                <View style={styles.optionsBlock}>
+                  <Text style={styles.optionsLabel}>Variant (required)</Text>
+                  <View style={styles.optionsRow}>
+                    {(optionsItem.variants ?? []).map((v) => (
+                      <Pressable
+                        key={v.id}
+                        onPress={() => setPickedVariant(v.id)}
+                        style={[styles.optionChip, pickedVariant === v.id && styles.optionChipActive]}
+                      >
+                        <Text style={[styles.optionChipText, pickedVariant === v.id && styles.optionChipTextActive]}>
+                          {v.name} · {formatPrice(v.price)}
+                        </Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                </View>
+              )}
+
+              {(optionsItem.addon_groups ?? []).map((g) => (
+                <View key={g.id} style={styles.optionsBlock}>
+                  <Text style={styles.optionsLabel}>
+                    {g.name}{g.max_select > 0 ? ` (max ${g.max_select})` : ''}
+                  </Text>
+                  <View style={styles.optionsRow}>
+                    {g.addons.map((a) => {
+                      const on = pickedAddons.includes(a.id)
+                      return (
+                        <Pressable
+                          key={a.id}
+                          onPress={() =>
+                            setPickedAddons((prev) =>
+                              prev.includes(a.id) ? prev.filter((x) => x !== a.id) : [...prev, a.id],
+                            )
+                          }
+                          style={[styles.optionChip, on && styles.optionChipActive]}
+                        >
+                          <Text style={[styles.optionChipText, on && styles.optionChipTextActive]}>
+                            {a.name} · +{formatPrice(a.price)}
+                          </Text>
+                        </Pressable>
+                      )
+                    })}
+                  </View>
+                </View>
+              ))}
+
+              </ScrollView>
+
+              <View style={styles.optionsActions}>
+                <Pressable style={styles.optionsCancel} onPress={() => setOptionsItem(null)}>
+                  <Text style={styles.optionsCancelText}>Cancel</Text>
+                </Pressable>
+                <Pressable
+                  style={[
+                    styles.optionsConfirm,
+                    (optionsItem.variants ?? []).length > 0 && !pickedVariant && { opacity: 0.5 },
+                  ]}
+                  onPress={confirmOptions}
+                  disabled={(optionsItem.variants ?? []).length > 0 && !pickedVariant}
+                >
+                  <Text style={styles.optionsConfirmText}>Add to order</Text>
+                </Pressable>
+              </View>
+            </View>
           </View>
         )}
       </View>
@@ -382,9 +601,18 @@ export default function SessionScreen() {
           <Ionicons name="receipt-outline" size={18} color={ORANGE} />
           <Text style={styles.billBtnText}>Bill</Text>
         </Pressable>
-        <Pressable style={styles.leaveBtn} onPress={handleLeaveTable}>
-          <Ionicons name="exit-outline" size={18} color="#ef4444" />
-          <Text style={styles.leaveBtnText}>Leave</Text>
+        <Pressable
+          style={[styles.leaveBtn, activeOrderCount > 0 && styles.leaveBtnDisabled]}
+          onPress={handleLeaveTable}
+        >
+          <Ionicons
+            name="exit-outline"
+            size={18}
+            color={activeOrderCount > 0 ? '#c4c4c4' : '#ef4444'}
+          />
+          <Text style={[styles.leaveBtnText, activeOrderCount > 0 && styles.leaveBtnTextDisabled]}>
+            Leave
+          </Text>
         </Pressable>
       </View>
 
@@ -520,6 +748,65 @@ const styles = StyleSheet.create({
     borderRadius: 12,
   },
   leaveBtnText: { color: '#ef4444', fontSize: 14, fontWeight: '700' },
+
+  // Variant / add-on picker
+  optionsOverlay: {
+    position: 'absolute',
+    top: 0, left: 0, right: 0, bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    justifyContent: 'flex-end',
+    // React Native paints siblings in tree order and ignores stacking without an
+    // explicit zIndex, so the cart bar covered the sheet's own buttons.
+    zIndex: 100,
+    elevation: 100,
+  },
+  optionsSheet: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    padding: 20,
+    // Clears the tab bar underneath, which would otherwise sit over Add to order.
+    paddingBottom: 40,
+    gap: 4,
+    maxHeight: '80%',
+  },
+  optionsTitle: { fontSize: 17, fontWeight: '700', color: '#1a1a1a', marginBottom: 8 },
+  optionsScroll: { flexGrow: 0 },
+  optionsScrollContent: { paddingBottom: 4 },
+  optionsBlock: { marginBottom: 12 },
+  optionsLabel: { fontSize: 13, fontWeight: '600', color: '#666', marginBottom: 8 },
+  optionsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  optionChip: {
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#e8e8e8',
+    backgroundColor: '#fff',
+  },
+  optionChipActive: { backgroundColor: ORANGE, borderColor: ORANGE },
+  optionChipText: { fontSize: 13, fontWeight: '600', color: '#555' },
+  optionChipTextActive: { color: '#fff' },
+  optionsActions: { flexDirection: 'row', gap: 10, marginTop: 8 },
+  optionsCancel: {
+    flex: 1,
+    paddingVertical: 13,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#e8e8e8',
+    alignItems: 'center',
+  },
+  optionsCancelText: { fontSize: 15, fontWeight: '600', color: '#666' },
+  optionsConfirm: {
+    flex: 2,
+    paddingVertical: 13,
+    borderRadius: 12,
+    backgroundColor: ORANGE,
+    alignItems: 'center',
+  },
+  optionsConfirmText: { fontSize: 15, fontWeight: '700', color: '#fff' },
+  leaveBtnDisabled: { borderColor: '#eee', backgroundColor: '#fafafa' },
+  leaveBtnTextDisabled: { color: '#c4c4c4' },
 
   // Orders list
   ordersList: { paddingVertical: 8 },

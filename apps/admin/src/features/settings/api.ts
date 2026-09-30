@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase'
+import { getMyOutletId } from '@/lib/outlet'
 
 export interface OutletSettings {
   id: string
@@ -33,9 +34,7 @@ export interface OutletSettings {
 export async function fetchOutletSettings(outletId?: string): Promise<OutletSettings> {
   let oid = outletId
   if (!oid) {
-    const { data: profile } = await supabase.from('profiles').select('outlet_id').single()
-    if (!profile) throw new Error('No profile found for current user')
-    oid = profile.outlet_id
+    oid = await getMyOutletId()
   }
 
   const { data, error } = await supabase
@@ -54,24 +53,22 @@ export async function updateOutletDetails(input: {
   gstin?: string
   fssai?: string
 }) {
-  const { data: profile } = await supabase.from('profiles').select('outlet_id').single()
-  if (!profile) throw new Error('No profile found for current user')
+  const outletId = await getMyOutletId()
 
   const { error } = await supabase
     .from('outlets')
     .update(input)
-    .eq('id', profile.outlet_id)
+    .eq('id', outletId)
   if (error) throw error
 }
 
 export async function updateOutletSettings(settings: OutletSettings['settings']) {
-  const { data: profile } = await supabase.from('profiles').select('outlet_id').single()
-  if (!profile) throw new Error('No profile found for current user')
+  const outletId = await getMyOutletId()
 
   const { error } = await supabase
     .from('outlets')
     .update({ settings })
-    .eq('id', profile.outlet_id)
+    .eq('id', outletId)
   if (error) throw error
 }
 
@@ -94,11 +91,10 @@ export async function fetchTaxGroups(): Promise<TaxGroup[]> {
 }
 
 export async function createTaxGroup(input: { name: string; cgst_percent: number; sgst_percent: number }) {
-  const { data: profile } = await supabase.from('profiles').select('outlet_id').single()
-  if (!profile) throw new Error('No profile found for current user')
+  const outletId = await getMyOutletId()
 
   const { error } = await supabase.from('tax_groups').insert({
-    outlet_id: profile.outlet_id,
+    outlet_id: outletId,
     ...input,
   })
   if (error) throw error

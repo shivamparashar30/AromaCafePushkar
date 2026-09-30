@@ -1,5 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query'
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { supabase } from './supabase'
 
 /**
@@ -14,14 +14,19 @@ export function useRealtimeInvalidate(
 ) {
   const queryClient = useQueryClient()
 
+  // Keep queryKeys in a ref so the subscription callback always uses the latest keys
+  // without needing to re-subscribe on every key change.
+  const keysRef = useRef(queryKeys)
+  keysRef.current = queryKeys
+
   useEffect(() => {
     const channel = supabase
-      .channel(`${table}-${filter ?? 'all'}-${queryKeys.map((k) => k.join(':')).join(',')}`)
+      .channel(`rt-${table}-${filter ?? 'all'}-${Math.random().toString(36).slice(2, 8)}`)
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table, filter },
         () => {
-          for (const key of queryKeys) {
+          for (const key of keysRef.current) {
             queryClient.invalidateQueries({ queryKey: key as unknown[] })
           }
         },
@@ -31,6 +36,5 @@ export function useRealtimeInvalidate(
     return () => {
       supabase.removeChannel(channel)
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [table, filter, queryClient])
 }

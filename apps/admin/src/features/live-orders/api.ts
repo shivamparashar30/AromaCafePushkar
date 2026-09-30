@@ -150,6 +150,16 @@ export async function cancelItem(itemId: string, reason: string) {
   if (error) throw error
 }
 
+/** Closes out a ready item once it has reached the table. Also what takes the ticket
+ *  off the kitchen display. */
+export async function markItemServed(itemId: string) {
+  const { error } = await supabase.rpc('set_item_status', {
+    p_item_ids: [itemId],
+    p_status: 'served',
+  })
+  if (error) throw error
+}
+
 export async function createBill(sessionId: string) {
   const { error } = await supabase.rpc('create_bill', { p_session_id: sessionId })
   if (error) throw error
@@ -187,4 +197,22 @@ export async function voidBill(billId: string, reason: string) {
 export async function freeTable(sessionId: string) {
   const { error } = await supabase.rpc('leave_table', { p_session_id: sessionId })
   if (error) throw error
+}
+
+/**
+ * Item ids that have variants or add-on groups, so the picker knows which items need
+ * the options step and which can be added to the draft in a single click.
+ */
+export async function fetchItemsWithOptions(): Promise<Set<string>> {
+  const [{ data: variants, error: vErr }, { data: groups, error: gErr }] = await Promise.all([
+    supabase.from('item_variants').select('item_id').eq('is_active', true),
+    supabase.from('addon_groups').select('item_id'),
+  ])
+  if (vErr) throw vErr
+  if (gErr) throw gErr
+
+  return new Set([
+    ...(variants ?? []).map((v) => v.item_id),
+    ...(groups ?? []).map((g) => g.item_id),
+  ])
 }

@@ -4,7 +4,7 @@ import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { useAuth } from '@/features/auth/AuthProvider'
-import { fetchFloors } from '@/features/tables/api'
+import { floorsQuery, FLOORS_QUERY_KEY } from '@/features/tables/api'
 import { useRealtimeInvalidate } from '@/lib/realtime'
 import { TABLE_STATUS_LABEL, TABLE_STATUS_STYLE } from '@/lib/table-status'
 import { cn } from '@/lib/utils'
@@ -12,6 +12,7 @@ import {
   addPayment,
   applyDiscount,
   cancelItem,
+  markItemServed,
   claimTable,
   createBill,
   fetchSessionDetail,
@@ -26,7 +27,7 @@ import { BillPanel } from './BillPanel'
 import { ItemPickerDialog } from './ItemPickerDialog'
 import { OrderList } from './OrderList'
 
-const FLOORS_KEY = ['floors-with-tables'] as const
+
 
 export function LiveOrdersPage() {
   const { profile } = useAuth()
@@ -36,8 +37,8 @@ export function LiveOrdersPage() {
   const [selectedTableId, setSelectedTableId] = useState<string | null>(null)
   const [pickerOpen, setPickerOpen] = useState(false)
 
-  const { data: floors } = useQuery({ queryKey: FLOORS_KEY, queryFn: fetchFloors })
-  useRealtimeInvalidate('tables', [FLOORS_KEY])
+  const { data: floors } = useQuery({ ...floorsQuery({ onlyActive: true }) })
+  useRealtimeInvalidate('tables', [FLOORS_QUERY_KEY])
 
   const sessionKey = ['session-detail', selectedTableId] as const
   const { data: detail } = useQuery({
@@ -46,15 +47,15 @@ export function LiveOrdersPage() {
     enabled: !!selectedTableId,
   })
 
-  useRealtimeInvalidate('table_sessions', [sessionKey, FLOORS_KEY])
+  useRealtimeInvalidate('table_sessions', [sessionKey, FLOORS_QUERY_KEY])
   useRealtimeInvalidate('orders', [sessionKey])
   useRealtimeInvalidate('order_items', [sessionKey])
-  useRealtimeInvalidate('bills', [sessionKey, FLOORS_KEY])
+  useRealtimeInvalidate('bills', [sessionKey, FLOORS_QUERY_KEY])
   useRealtimeInvalidate('payments', [sessionKey])
 
   function invalidateAll() {
     queryClient.invalidateQueries({ queryKey: sessionKey })
-    queryClient.invalidateQueries({ queryKey: FLOORS_KEY })
+    queryClient.invalidateQueries({ queryKey: FLOORS_QUERY_KEY })
   }
 
   const claimMutation = useMutation({
@@ -79,6 +80,12 @@ export function LiveOrdersPage() {
     },
     onSuccess: invalidateAll,
     onError: (e: Error) => toast.error(e.message ?? 'Could not cancel item'),
+  })
+
+  const serveItemMutation = useMutation({
+    mutationFn: markItemServed,
+    onSuccess: invalidateAll,
+    onError: (e: Error) => toast.error(e.message ?? 'Could not mark item served'),
   })
 
   const freeTableMutation = useMutation({
@@ -177,6 +184,7 @@ export function LiveOrdersPage() {
                       orders={detail.orders}
                       canCancel={canManage}
                       onCancelItem={(id) => cancelItemMutation.mutate(id)}
+                      onServeItem={(id) => serveItemMutation.mutate(id)}
                     />
                   </CardContent>
                 </Card>
@@ -185,6 +193,9 @@ export function LiveOrdersPage() {
                   bill={detail.bill}
                   payments={detail.payments}
                   canManage={canManage}
+                  hasItems={detail.orders.some((o) =>
+                    o.items.some((i) => i.status !== 'cancelled'),
+                  )}
                   onCreateBill={async () => {
                     await createBill(detail.session!.id)
                     invalidateAll()

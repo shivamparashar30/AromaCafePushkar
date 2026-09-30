@@ -15,10 +15,12 @@ export function OrderList({
   orders,
   canCancel,
   onCancelItem,
+  onServeItem,
 }: {
   orders: SessionDetail['orders']
   canCancel: boolean
   onCancelItem: (itemId: string) => void
+  onServeItem: (itemId: string) => void
 }) {
   if (orders.length === 0) {
     return <p className="text-sm text-muted-foreground">No orders on this table yet.</p>
@@ -52,6 +54,16 @@ export function OrderList({
                     {formatMoney(item.unit_price * item.qty)}
                   </span>
                   <Badge variant={STATUS_VARIANT[item.status]}>{item.status}</Badge>
+                  {item.status === 'ready' && (
+                    <Button
+                      variant="link"
+                      size="sm"
+                      className="h-auto p-0 text-xs"
+                      onClick={() => onServeItem(item.id)}
+                    >
+                      Serve
+                    </Button>
+                  )}
                   {canCancel && item.status !== 'cancelled' && item.status !== 'served' && (
                     <Button
                       variant="link"

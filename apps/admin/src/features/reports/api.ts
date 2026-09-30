@@ -18,7 +18,7 @@ export async function fetchSalesReport(from: string, to: string, groupBy: GroupB
     p_group_by: groupBy,
   })
   if (error) throw error
-  return (data as SalesRow[]) ?? []
+  return (data as unknown as SalesRow[]) ?? []
 }
 
 export interface DishSale {

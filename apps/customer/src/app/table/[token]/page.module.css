@@ -123,6 +123,86 @@
   margin-bottom: 10px;
 }
 
+.ordersHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.ordersHeader .sectionTitle {
+  margin-bottom: 0;
+}
+
+.liveTag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #15803d;
+}
+
+.liveDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #22c55e;
+  animation: livePulse 1.8s ease-in-out infinite;
+}
+
+@keyframes livePulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.25; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .liveDot { animation: none; }
+}
+
+/* Bill */
+.billSection {
+  padding: 0 16px;
+  margin-top: 8px;
+}
+
+.billHeader {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.billNo {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.billSection .billRow {
+  display: flex;
+  justify-content: space-between;
+  font-size: 14px;
+  padding: 5px 0;
+  color: var(--muted);
+}
+
+.billTotal {
+  border-top: 1px solid var(--border);
+  margin-top: 4px;
+  padding-top: 10px !important;
+  font-size: 16px !important;
+  font-weight: 700;
+  color: var(--text) !important;
+}
+
+.billPaid {
+  margin-top: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #15803d;
+}
+
 .orderCard {
   background: var(--card);
   border: 1px solid var(--border);
@@ -305,6 +385,12 @@
 .modalInput:focus {
   outline: none;
   border-color: var(--accent);
+}
+
+.modalError {
+  font-size: 13px;
+  color: #dc2626;
+  margin: -2px 0 10px;
 }
 
 .modalButtons {

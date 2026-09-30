@@ -1,5 +1,5 @@
 import { router } from 'expo-router'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   ActivityIndicator,
   Alert,
@@ -16,12 +16,18 @@ import { loginWithPin } from '../src/lib/auth'
 import { useAuth } from '../src/context/AuthContext'
 import { loadProfile } from '../src/lib/auth'
 import { supabase } from '../src/lib/supabase'
+import { fetchOutletName } from '../src/lib/api'
 
 const ORANGE = '#E8713A'
 const ORANGE_LIGHT = '#FFF7F2'
 const ORANGE_BORDER = '#FDDCC8'
 
 export default function LoginScreen() {
+  const [outletName, setOutletName] = useState('')
+
+  useEffect(() => {
+    fetchOutletName().then(setOutletName).catch(() => {})
+  }, [])
   const { setProfile } = useAuth()
   const [phone, setPhone] = useState('+91')
   const [pin, setPin] = useState('')
@@ -67,7 +73,7 @@ export default function LoginScreen() {
         <View style={styles.logoCircle}>
           <Ionicons name="cafe" size={32} color="#fff" />
         </View>
-        <Text style={styles.title}>Aroma Cafe Pushkar</Text>
+        <Text style={styles.title}>{outletName || 'Staff sign in'}</Text>
         <Text style={styles.subtitle}>Sign in with your phone & PIN</Text>
 
         <View style={styles.inputGroup}>

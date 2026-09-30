@@ -34,7 +34,7 @@ export function OverviewPage() {
           {greeting}, {profile?.name?.split(' ')[0] ?? 'there'}
         </h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Here's what's happening at Aroma Cafe today.
+          Here's what's happening at {profile?.outlet_name ?? 'your outlet'} today.
         </p>
       </div>
 

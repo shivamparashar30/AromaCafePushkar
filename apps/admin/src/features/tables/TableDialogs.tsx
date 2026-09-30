@@ -21,10 +21,17 @@ export function AddFloorDialog({ onSubmit }: { onSubmit: (name: string) => Promi
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setSubmitting(true)
-    await onSubmit(name)
-    setSubmitting(false)
-    setName('')
-    setOpen(false)
+    try {
+      // mutateAsync rejects on failure, so without the finally the button stayed on
+      // "Adding…" forever and the real error was never visible.
+      await onSubmit(name)
+      setName('')
+      setOpen(false)
+    } catch {
+      // The mutation's onError already surfaces the message as a toast.
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   return (
@@ -75,10 +82,15 @@ export function AddTableDialog({
     e.preventDefault()
     if (!floorId) return
     setSubmitting(true)
-    await onSubmit({ name, floor_id: floorId, capacity })
-    setSubmitting(false)
-    setName('')
-    setOpen(false)
+    try {
+      await onSubmit({ name, floor_id: floorId, capacity })
+      setName('')
+      setOpen(false)
+    } catch {
+      // The mutation's onError already surfaces the message as a toast.
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   return (

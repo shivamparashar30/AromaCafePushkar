@@ -126,6 +126,86 @@
   margin-bottom: 10px;
 }
 
+.page_ordersHeader__619GI {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.page_ordersHeader__619GI .page_sectionTitle__FfKsZ {
+  margin-bottom: 0;
+}
+
+.page_liveTag__fNQKI {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #15803d;
+}
+
+.page_liveDot__aK1eh {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #22c55e;
+  animation: page_livePulse__FekUP 1.8s ease-in-out infinite;
+}
+
+@keyframes page_livePulse__FekUP {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.25; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .page_liveDot__aK1eh { animation: none; }
+}
+
+/* Bill */
+.page_billSection__xOFw7 {
+  padding: 0 16px;
+  margin-top: 8px;
+}
+
+.page_billHeader__0S6LZ {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.page_billNo__3oOeL {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.page_billSection__xOFw7 .page_billRow__CU4QE {
+  display: flex;
+  justify-content: space-between;
+  font-size: 14px;
+  padding: 5px 0;
+  color: var(--muted);
+}
+
+.page_billTotal__pUrnY {
+  border-top: 1px solid var(--border);
+  margin-top: 4px;
+  padding-top: 10px !important;
+  font-size: 16px !important;
+  font-weight: 700;
+  color: var(--text) !important;
+}
+
+.page_billPaid__OCR6f {
+  margin-top: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #15803d;
+}
+
 .page_orderCard__EbGmG {
   background: var(--card);
   border: 1px solid var(--border);
@@ -308,6 +388,12 @@
 .page_modalInput__gn0fo:focus {
   outline: none;
   border-color: var(--accent);
+}
+
+.page_modalError__rZA0K {
+  font-size: 13px;
+  color: #dc2626;
+  margin: -2px 0 10px;
 }
 
 .page_modalButtons__PWW71 {

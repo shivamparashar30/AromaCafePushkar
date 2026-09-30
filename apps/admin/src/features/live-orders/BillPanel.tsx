@@ -1,8 +1,11 @@
 import { useState } from 'react'
+import { toast } from 'sonner'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { useEnumOptions } from '@/lib/enums'
 import { formatMoney, rupeesToPaise } from '@/lib/money'
 import type { PaymentMode, SessionDetail } from './api'
 
@@ -10,6 +13,7 @@ export function BillPanel({
   bill,
   payments,
   canManage,
+  hasItems,
   onCreateBill,
   onApplyDiscount,
   onAddPayment,
@@ -19,6 +23,8 @@ export function BillPanel({
   bill: SessionDetail['bill']
   payments: SessionDetail['payments']
   canManage: boolean
+  /** False when the table has no live (non-cancelled) items — there is nothing to bill. */
+  hasItems: boolean
   onCreateBill: () => Promise<void>
   onApplyDiscount: (discountPaise: number, reason: string) => Promise<void>
   onAddPayment: (mode: PaymentMode, amountPaise: number, reference: string) => Promise<void>
@@ -31,6 +37,7 @@ export function BillPanel({
   const [paymentAmount, setPaymentAmount] = useState('')
   const [reference, setReference] = useState('')
   const [busy, setBusy] = useState(false)
+  const paymentModes = useEnumOptions('payment_mode')
 
   const paid = payments.reduce((s, p) => s + Number(p.amount), 0)
   const remaining = bill ? Number(bill.total) - paid : 0
@@ -52,9 +59,23 @@ export function BillPanel({
         </CardHeader>
         <CardContent className="space-y-2">
           <p className="text-xs text-muted-foreground">
-            Tax, service charge, and discount from settings will be auto-applied.
+            {hasItems
+              ? 'Tax, service charge, and discount from settings will be auto-applied.'
+              : 'Add at least one item to this table before creating a bill.'}
           </p>
-          <Button disabled={!canManage || busy} onClick={() => run(onCreateBill)}>
+          <Button
+            disabled={!canManage || busy}
+            onClick={() => {
+              // Caught here so the message is immediate; create_bill enforces it server-side too.
+              if (!hasItems) {
+                toast.error('Nothing to bill yet', {
+                  description: 'Add at least one item to this table before creating a bill.',
+                })
+                return
+              }
+              run(onCreateBill)
+            }}
+          >
             Create bill
           </Button>
         </CardContent>
@@ -69,7 +90,20 @@ export function BillPanel({
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base">Bill {bill.bill_no ? `#${bill.bill_no}` : '(open)'}</CardTitle>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <CardTitle className="text-base">
+            {bill.bill_no ? bill.bill_no : 'Bill'}
+          </CardTitle>
+          <Badge
+            variant={
+              bill.status === 'paid' ? 'default'
+              : bill.status === 'void' ? 'destructive'
+              : 'secondary'
+            }
+          >
+            {bill.status}
+          </Badge>
+        </div>
       </CardHeader>
       <CardContent className="space-y-4">
         <dl className="space-y-1.5 text-sm">
@@ -130,11 +164,9 @@ export function BillPanel({
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="cash">Cash</SelectItem>
-                    <SelectItem value="upi">UPI</SelectItem>
-                    <SelectItem value="card">Card</SelectItem>
-                    <SelectItem value="online">Online</SelectItem>
-                    <SelectItem value="other">Other</SelectItem>
+                    {paymentModes.map((m) => (
+                      <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
                 <Input

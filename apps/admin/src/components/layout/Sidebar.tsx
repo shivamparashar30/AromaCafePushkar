@@ -1,21 +1,14 @@
 import { NavLink } from 'react-router-dom'
+import { humaniseEnum } from '@/lib/enums'
 import { cn } from '@/lib/utils'
 import { NAV_ITEMS } from './nav'
 import type { StaffProfile } from '@/features/auth/AuthProvider'
-
-const ROLE_LABEL: Record<StaffProfile['role'], string> = {
-  super_admin: 'Super Admin',
-  manager: 'Manager',
-  cashier: 'Cashier',
-  waiter: 'Waiter',
-  kitchen: 'Kitchen',
-}
 
 export function Sidebar({ profile, onNavigate }: { profile: StaffProfile; onNavigate: () => void }) {
   const items = NAV_ITEMS.filter((item) => item.roles.includes(profile.role))
 
   return (
-    <aside className="flex h-svh w-64 shrink-0 flex-col border-r bg-sidebar text-sidebar-foreground">
+    <aside className="flex h-full w-64 shrink-0 flex-col border-r bg-sidebar text-sidebar-foreground">
       <div className="border-b bg-[#FFF7F2] px-4 py-5">
         <div className="flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#E8713A] shadow-sm">
@@ -27,13 +20,14 @@ export function Sidebar({ profile, onNavigate }: { profile: StaffProfile; onNavi
               <line x1="14" x2="14" y1="2" y2="4" />
             </svg>
           </div>
-          <div>
-            <p className="font-bold text-[15px] leading-tight text-foreground">Aroma Cafe</p>
-            <p className="text-xs text-[#E8713A] font-medium tracking-wide">PUSHKAR</p>
+          <div className="min-w-0">
+            <p className="truncate font-bold text-[15px] leading-tight text-foreground">
+              {profile.outlet_name}
+            </p>
           </div>
         </div>
         <div className="mt-3 rounded-lg bg-white/70 px-3 py-1.5 text-xs text-muted-foreground">
-          {ROLE_LABEL[profile.role]} Dashboard
+          {humaniseEnum(profile.role)} Dashboard
         </div>
       </div>
       <nav className="flex-1 space-y-0.5 overflow-y-auto p-2 pt-3">

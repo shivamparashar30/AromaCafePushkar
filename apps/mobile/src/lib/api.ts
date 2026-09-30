@@ -13,6 +13,10 @@ export async function fetchWaiterTables(waiterId: string): Promise<TableWithSess
       table_sessions!left(id, waiter_id, guest_count, status)
     `)
     .eq('is_active', true)
+    // Counter slots are billing plumbing, not seats — a waiter must never see them.
+    .eq('is_counter', false)
+    // Retired tables keep their row so old bills resolve, but must not be seatable.
+    .is('deleted_at', null)
     .order('name')
 
   if (error) throw error
@@ -36,6 +40,37 @@ export async function claimTable(tableId: string) {
   const { data, error } = await supabase.rpc('claim_table', { p_table_id: tableId })
   if (error) throw error
   return data
+}
+
+export async function lookupTableByQrToken(token: string): Promise<TableWithSession | null> {
+  const { data, error } = await supabase
+    .from('tables')
+    .select(`
+      id, name, capacity, status, qr_token,
+      floor:floors(name),
+      table_sessions!left(id, waiter_id, guest_count, status)
+    `)
+    // A retired table's QR must stop working, matching resolve_qr on the server, and a
+    // counter slot's token is plumbing that was never meant to be scanned.
+    .eq('is_counter', false)
+    .is('deleted_at', null)
+    .eq('qr_token', token)
+    .eq('is_active', true)
+    .single()
+
+  if (error || !data) return null
+
+  const openSession = (data.table_sessions as any[])?.find((s: any) => s.status === 'open')
+  return {
+    id: data.id,
+    name: data.name,
+    capacity: data.capacity,
+    status: data.status,
+    floor_name: (data.floor as any)?.name ?? '',
+    session_id: openSession?.id ?? null,
+    waiter_id: openSession?.waiter_id ?? null,
+    guest_count: openSession?.guest_count ?? null,
+  }
 }
 
 export async function fetchMenuForOrdering(): Promise<MenuItem[]> {
@@ -103,7 +138,7 @@ export async function fetchSessionOrders(sessionId: string): Promise<Order[]> {
     .from('orders')
     .select(`
       id, kot_number, status, source, placed_by_name, created_at,
-      table_session:table_sessions(table:tables(name)),
+      table_session:table_sessions(status, table:tables(name)),
       order_items(
         id, qty, unit_price, notes, status, station,
         menu_item:menu_items(name),
@@ -167,7 +202,7 @@ export async function fetchKitchenOrders(): Promise<Order[]> {
     .from('orders')
     .select(`
       id, kot_number, status, source, placed_by_name, created_at,
-      table_session:table_sessions(table:tables(name)),
+      table_session:table_sessions(status, table:tables(name)),
       order_items(
         id, qty, unit_price, notes, status, station,
         menu_item:menu_items(name),
@@ -175,12 +210,21 @@ export async function fetchKitchenOrders(): Promise<Order[]> {
         order_item_addons(addon:addons(name, price))
       )
     `)
-    .in('status', ['placed', 'cooking'])
+    // 'ready' stays on the board: a ready ticket is not finished work, it is work
+    // waiting to be picked up. It leaves when a waiter marks it served (or when the
+    // bill is paid, which mark_paid settles automatically).
+    .in('status', ['placed', 'cooking', 'ready'])
     .order('created_at', { ascending: true })
 
   if (error) throw error
 
-  return (data ?? []).map((o) => ({
+  return (data ?? [])
+    // A closed session is done with, whatever its item statuses say. mark_paid settles
+    // items on the way out, but this does not depend on that having worked: any row that
+    // slips through (a session closed directly by a manager, or history predating that
+    // fix) would otherwise sit on the board forever with no way to clear it.
+    .filter((o) => (o.table_session as any)?.status === 'open')
+    .map((o) => ({
     id: o.id,
     kot_number: o.kot_number,
     status: o.status,
@@ -241,4 +285,11 @@ export async function acknowledgeNotification(id: string, userId: string) {
     .update({ acknowledged_by: userId, acknowledged_at: new Date().toISOString() })
     .eq('id', id)
   if (error) throw error
+}
+
+/** The outlet's public identity, so no screen has to hard-code the restaurant name. */
+export async function fetchOutletName(): Promise<string> {
+  const { data, error } = await supabase.rpc('public_outlet_info')
+  if (error) throw error
+  return (data ?? [])[0]?.name ?? ''
 }

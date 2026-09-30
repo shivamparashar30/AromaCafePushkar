@@ -17,9 +17,9 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { fetchFloors, regenerateTableQr, type FloorWithTables } from '@/features/tables/api'
+import { floorsQuery, FLOORS_QUERY_KEY, regenerateTableQr, type FloorWithTables } from '@/features/tables/api'
 
-const FLOORS_KEY = ['floors-with-tables'] as const
+
 
 function orderingUrl(domain: string, token: string): string {
   return `https://order.${domain}/t/${token}`
@@ -27,14 +27,14 @@ function orderingUrl(domain: string, token: string): string {
 
 export function QrPage() {
   const queryClient = useQueryClient()
-  const { data: floors, isLoading } = useQuery({ queryKey: FLOORS_KEY, queryFn: fetchFloors })
+  const { data: floors, isLoading } = useQuery({ ...floorsQuery({}) })
   const [domain, setDomain] = useState('aromacafepushkar.example')
   const printRef = useRef<HTMLDivElement>(null)
 
   const regenerateMutation = useMutation({
     mutationFn: regenerateTableQr,
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: FLOORS_KEY })
+      queryClient.invalidateQueries({ queryKey: FLOORS_QUERY_KEY })
       toast.success('QR regenerated — the old printed code will stop working')
     },
     onError: () => toast.error('Could not regenerate QR'),

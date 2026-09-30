@@ -1,12 +1,14 @@
 import { router } from 'expo-router'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   Alert,
   FlatList,
   Pressable,
   RefreshControl,
+  ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
@@ -26,10 +28,20 @@ const STATUS_CONFIG: Record<string, { color: string; bg: string; label: string }
   reserved: { color: '#dc2626', bg: '#fee2e2', label: 'Reserved' },
 }
 
+const STATUS_FILTERS: { value: string; label: string }[] = [
+  { value: 'all', label: 'All' },
+  { value: 'free', label: 'Free' },
+  { value: 'occupied', label: 'Occupied' },
+  { value: 'bill_requested', label: 'Bill' },
+  { value: 'reserved', label: 'Reserved' },
+]
+
 export default function WaiterTablesScreen() {
   const { profile } = useAuth()
   const [tables, setTables] = useState<TableWithSession[]>([])
   const [refreshing, setRefreshing] = useState(false)
+  const [search, setSearch] = useState('')
+  const [statusFilter, setStatusFilter] = useState('all')
 
   const load = useCallback(async () => {
     if (!profile) return
@@ -81,8 +93,24 @@ export default function WaiterTablesScreen() {
     }
   }
 
-  const myTables = tables.filter((t) => t.waiter_id === profile?.id)
-  const otherTables = tables.filter((t) => t.waiter_id !== profile?.id)
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    return tables.filter((t) => {
+      if (statusFilter !== 'all' && t.status !== statusFilter) return false
+      if (!q) return true
+      const statusLabel = STATUS_CONFIG[t.status]?.label ?? t.status
+      return (
+        t.name.toLowerCase().includes(q) ||
+        (t.floor_name ?? '').toLowerCase().includes(q) ||
+        statusLabel.toLowerCase().includes(q) ||
+        t.status.toLowerCase().includes(q)
+      )
+    })
+  }, [tables, search, statusFilter])
+
+  const myTables = filtered.filter((t) => t.waiter_id === profile?.id)
+  const otherTables = filtered.filter((t) => t.waiter_id !== profile?.id)
+  const isFiltering = search.trim().length > 0 || statusFilter !== 'all'
 
   function renderTable(item: TableWithSession) {
     const config = STATUS_CONFIG[item.status] ?? { color: '#666', bg: '#f3f4f6', label: item.status }
@@ -117,9 +145,58 @@ export default function WaiterTablesScreen() {
 
   return (
     <View style={styles.container}>
+      {/* Search */}
+      <View style={styles.searchBar}>
+        <Ionicons name="search" size={18} color="#bbb" />
+        <TextInput
+          style={styles.searchInput}
+          placeholder="Search table, floor or status..."
+          placeholderTextColor="#c4c4c4"
+          value={search}
+          onChangeText={setSearch}
+          autoCorrect={false}
+          autoCapitalize="none"
+          returnKeyType="search"
+        />
+        {search.length > 0 && (
+          <Pressable onPress={() => setSearch('')} hitSlop={8}>
+            <Ionicons name="close-circle" size={18} color="#bbb" />
+          </Pressable>
+        )}
+      </View>
+
+      {/* Status filter chips */}
+      <View style={styles.filterRow}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.filterBar}
+        >
+          {STATUS_FILTERS.map((f) => {
+            const active = statusFilter === f.value
+            const count =
+              f.value === 'all'
+                ? tables.length
+                : tables.filter((t) => t.status === f.value).length
+            return (
+              <Pressable
+                key={f.value}
+                style={[styles.filterChip, active && styles.filterChipActive]}
+                onPress={() => setStatusFilter(f.value)}
+              >
+                <Text style={[styles.filterChipText, active && styles.filterChipTextActive]}>
+                  {f.label} ({count})
+                </Text>
+              </Pressable>
+            )
+          })}
+        </ScrollView>
+      </View>
+
       <FlatList
         data={[...myTables, ...otherTables]}
         keyExtractor={(t) => t.id}
+        keyboardShouldPersistTaps="handled"
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={ORANGE} />}
         contentContainerStyle={styles.list}
         ListHeaderComponent={
@@ -137,8 +214,21 @@ export default function WaiterTablesScreen() {
         )}
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
-            <Ionicons name="grid-outline" size={48} color="#ddd" />
-            <Text style={styles.emptyText}>No tables found</Text>
+            <Ionicons name={isFiltering ? 'search-outline' : 'grid-outline'} size={48} color="#ddd" />
+            <Text style={styles.emptyText}>
+              {isFiltering ? 'No tables match your search' : 'No tables found'}
+            </Text>
+            {isFiltering && (
+              <Pressable
+                style={styles.clearBtn}
+                onPress={() => {
+                  setSearch('')
+                  setStatusFilter('all')
+                }}
+              >
+                <Text style={styles.clearBtnText}>Clear filters</Text>
+              </Pressable>
+            )}
           </View>
         }
       />
@@ -149,6 +239,55 @@ export default function WaiterTablesScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#fafafa' },
   list: { paddingVertical: 8 },
+  searchBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    marginHorizontal: 12,
+    marginTop: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#e8e8e8',
+    gap: 8,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 15,
+    color: '#1a1a1a',
+    padding: 0,
+  },
+  filterRow: {
+    height: 52,
+    marginTop: 4,
+  },
+  filterBar: {
+    paddingHorizontal: 12,
+    height: 52,
+    gap: 8,
+    alignItems: 'center',
+  },
+  filterChip: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#e8e8e8',
+  },
+  filterChipActive: {
+    backgroundColor: ORANGE,
+    borderColor: ORANGE,
+  },
+  filterChipText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#777',
+  },
+  filterChipTextActive: {
+    color: '#fff',
+  },
   sectionHeader: {
     fontSize: 12,
     fontWeight: '700',
@@ -196,4 +335,14 @@ const styles = StyleSheet.create({
   assignedLabel: { fontSize: 12, color: ORANGE, fontWeight: '600' },
   emptyContainer: { alignItems: 'center', marginTop: 80 },
   emptyText: { fontSize: 15, color: '#999', marginTop: 12 },
+  clearBtn: {
+    marginTop: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: ORANGE_BORDER,
+    backgroundColor: ORANGE_LIGHT,
+  },
+  clearBtnText: { fontSize: 13, fontWeight: '600', color: ORANGE },
 })

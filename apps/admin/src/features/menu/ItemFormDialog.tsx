@@ -14,6 +14,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
+import { useEnumOptions } from '@/lib/enums'
 import { rupeesToPaise } from '@/lib/money'
 import type { Category, MenuItem, MenuItemInput, TaxGroup } from './api'
 import { fetchItemDetail } from './api'
@@ -71,6 +72,7 @@ export function ItemFormDialog({
   onSubmit: (input: MenuItemInput) => Promise<void>
 }) {
   const [submitting, setSubmitting] = useState(false)
+  const foodTypes = useEnumOptions('food_type')
   const {
     register,
     handleSubmit,
@@ -208,9 +210,9 @@ export function ItemFormDialog({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="veg">Veg</SelectItem>
-                  <SelectItem value="non_veg">Non-veg</SelectItem>
-                  <SelectItem value="egg">Egg</SelectItem>
+                  {foodTypes.map((t) => (
+                    <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>

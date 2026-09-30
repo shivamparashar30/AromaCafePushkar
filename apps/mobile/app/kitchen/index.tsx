@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   Alert,
   FlatList,
@@ -9,11 +9,19 @@ import {
   Text,
   View,
 } from 'react-native'
+import { Ionicons } from '@expo/vector-icons'
+import * as SecureStore from 'expo-secure-store'
 import { fetchKitchenOrders, markItemsCooking, markItemsReady } from '../../src/lib/api'
 import { supabase } from '../../src/lib/supabase'
 import type { Order } from '../../src/lib/types'
 
 const ORANGE = '#E8713A'
+const GREEN = '#22c55e'
+
+// Tickets the kitchen has cleared off this screen by hand. Display-only: the order is
+// still 'ready' and still waiting on a waiter to serve it. Persisted so a reload of an
+// always-on KDS does not bring every cleared ticket back.
+const DISMISSED_KEY = 'kds_dismissed_orders'
 
 const STATUS_COLORS: Record<string, string> = {
   ordered: '#3b82f6',
@@ -21,17 +29,43 @@ const STATUS_COLORS: Record<string, string> = {
   ready: '#22c55e',
 }
 
+async function persistDismissed(ids: string[]) {
+  try {
+    // SecureStore caps values at 2KB on Android; the list self-prunes on every load, so
+    // this only guards a pathological burst.
+    await SecureStore.setItemAsync(DISMISSED_KEY, JSON.stringify(ids.slice(-40)))
+  } catch {
+    // Display-only state — losing it just means cleared tickets reappear once.
+  }
+}
+
 export default function KitchenOrdersScreen() {
   const [orders, setOrders] = useState<Order[]>([])
   const [refreshing, setRefreshing] = useState(false)
+  const [dismissed, setDismissed] = useState<string[]>([])
 
   const load = useCallback(async () => {
     try {
       const data = await fetchKitchenOrders()
       setOrders(data)
+
+      // Self-pruning: once an order leaves the board for real (served, cancelled, or
+      // settled with the bill) its id is dropped, so the list cannot grow without bound.
+      setDismissed((prev) => {
+        const live = new Set(data.map((o) => o.id))
+        const next = prev.filter((id) => live.has(id))
+        if (next.length !== prev.length) void persistDismissed(next)
+        return next
+      })
     } catch (err) {
       console.error('Failed to load kitchen orders', err)
     }
+  }, [])
+
+  useEffect(() => {
+    SecureStore.getItemAsync(DISMISSED_KEY)
+      .then((raw) => { if (raw) setDismissed(JSON.parse(raw)) })
+      .catch(() => {})
   }, [])
 
   useEffect(() => {
@@ -71,24 +105,54 @@ export default function KitchenOrdersScreen() {
     }
   }
 
+  function handleDismiss(order: Order) {
+    Alert.alert(
+      `Clear KOT #${order.kot_number}?`,
+      'This only removes the ticket from the kitchen screen. The order stays ready until a waiter marks it served.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Clear',
+          onPress: () => {
+            setDismissed((prev) => {
+              const next = [...prev, order.id]
+              void persistDismissed(next)
+              return next
+            })
+          },
+        },
+      ],
+    )
+  }
+
   function elapsedMinutes(createdAt: string): number {
     return Math.floor((Date.now() - new Date(createdAt).getTime()) / 60000)
   }
 
+  const dismissedSet = useMemo(() => new Set(dismissed), [dismissed])
+  const visibleOrders = useMemo(
+    () => orders.filter((o) => !dismissedSet.has(o.id)),
+    [orders, dismissedSet],
+  )
+  const clearedCount = orders.length - visibleOrders.length
+
   return (
     <SafeAreaView style={styles.container}>
       <FlatList
-        data={orders}
+        data={visibleOrders}
         keyExtractor={(o) => o.id}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={ORANGE} />}
         renderItem={({ item: order }) => {
           const elapsed = elapsedMinutes(order.created_at)
-          const isUrgent = elapsed >= 15
+          const isReady = order.status === 'ready'
+          // A ready ticket is waiting on a waiter, not on the kitchen, so it should not
+          // also be screaming for attention.
+          const isUrgent = elapsed >= 15 && !isReady
 
           return (
-            <View style={[styles.orderCard, isUrgent && styles.urgentCard]}>
+            <View style={[styles.orderCard, isUrgent && styles.urgentCard, isReady && styles.readyCard]}>
               <View style={styles.orderHeader}>
-                <View>
+                <View style={{ flex: 1 }}>
                   <Text style={styles.kotLabel}>KOT #{order.kot_number}</Text>
                   <Text style={styles.tableName}>{order.table_name}</Text>
                   <Text style={styles.sourceLabel}>
@@ -99,9 +163,28 @@ export default function KitchenOrdersScreen() {
                   <Text style={[styles.elapsed, isUrgent && styles.urgentText]}>
                     {elapsed} min ago
                   </Text>
-                  <Text style={styles.orderStatusLabel}>{order.status}</Text>
+                  <Text style={[styles.orderStatusLabel, isReady && styles.readyStatusLabel]}>
+                    {order.status}
+                  </Text>
                 </View>
+                {isReady && (
+                  <Pressable
+                    style={styles.dismissBtn}
+                    onPress={() => handleDismiss(order)}
+                    hitSlop={8}
+                    accessibilityLabel={`Clear KOT ${order.kot_number} from the screen`}
+                  >
+                    <Ionicons name="close" size={18} color="#9ca3af" />
+                  </Pressable>
+                )}
               </View>
+
+              {isReady && (
+                <View style={styles.readyBanner}>
+                  <Ionicons name="checkmark-circle" size={14} color={GREEN} />
+                  <Text style={styles.readyBannerText}>Ready — waiting for a waiter to serve</Text>
+                </View>
+              )}
 
               {order.items
                 .filter((i) => i.status !== 'cancelled' && i.status !== 'served')
@@ -168,6 +251,19 @@ export default function KitchenOrdersScreen() {
             <Text style={styles.emptyText}>No pending orders</Text>
           </View>
         }
+        ListFooterComponent={
+          clearedCount > 0 ? (
+            <Pressable
+              style={styles.restoreBtn}
+              onPress={() => { setDismissed([]); void persistDismissed([]) }}
+            >
+              <Ionicons name="eye-outline" size={14} color="#888" />
+              <Text style={styles.restoreText}>
+                {clearedCount} cleared ticket{clearedCount === 1 ? '' : 's'} · show again
+              </Text>
+            </Pressable>
+          ) : null
+        }
       />
     </SafeAreaView>
   )
@@ -197,6 +293,28 @@ const styles = StyleSheet.create({
   elapsed: { fontSize: 12, color: '#999' },
   urgentText: { color: '#ef4444', fontWeight: '600' },
   orderStatusLabel: { fontSize: 11, color: '#999', textTransform: 'capitalize', marginTop: 2 },
+  readyCard: { borderLeftWidth: 4, borderLeftColor: GREEN },
+  readyStatusLabel: { color: GREEN, fontWeight: '700' },
+  dismissBtn: { paddingLeft: 10, paddingTop: 2 },
+  readyBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#f0fdf4',
+    borderRadius: 8,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    marginBottom: 8,
+  },
+  readyBannerText: { fontSize: 12, color: '#15803d', fontWeight: '600' },
+  restoreBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 14,
+  },
+  restoreText: { fontSize: 12, color: '#888', fontWeight: '500' },
   itemRow: {
     flexDirection: 'row',
     alignItems: 'center',

@@ -10,6 +10,8 @@ export interface StaffProfile {
   name: string
   phone: string
   role: AppRole
+  /** The outlet's own name, so nothing in the UI has to hard-code the restaurant. */
+  outlet_name: string
 }
 
 interface AuthContextValue {
@@ -24,11 +26,17 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined)
 async function loadProfile(userId: string): Promise<StaffProfile | null> {
   const { data, error } = await supabase
     .from('profiles')
-    .select('id, outlet_id, name, phone, role:roles(name)')
+    .select('id, outlet_id, name, phone, role:roles(name), outlet:outlets!profiles_outlet_id_fkey(name)')
     .eq('id', userId)
     .single()
 
-  if (error || !data || !data.role) return null
+  if (error) {
+    // Silently returning null here left the app stuck on "Loading your profile…" with no
+    // clue why. The reason belongs in the console.
+    console.error('[auth] could not load staff profile:', error.message)
+    return null
+  }
+  if (!data || !data.role) return null
 
   return {
     id: data.id,
@@ -36,6 +44,7 @@ async function loadProfile(userId: string): Promise<StaffProfile | null> {
     name: data.name,
     phone: data.phone,
     role: data.role.name as AppRole,
+    outlet_name: (data as { outlet?: { name: string } | null }).outlet?.name ?? '',
   }
 }
 

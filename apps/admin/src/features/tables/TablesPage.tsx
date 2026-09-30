@@ -22,49 +22,49 @@ import {
   createTable,
   deleteFloor,
   deleteTable,
-  fetchFloors,
-  updateTable,
+  floorsQuery,
+  FLOORS_QUERY_KEY,  updateTable,
 } from './api'
 import { AddFloorDialog, AddTableDialog } from './TableDialogs'
 
-const FLOORS_KEY = ['floors-with-tables'] as const
+
 
 export function TablesPage() {
   const { profile } = useAuth()
   const canEdit = profile?.role === 'super_admin' || profile?.role === 'manager'
   const queryClient = useQueryClient()
 
-  const { data: floors, isLoading } = useQuery({ queryKey: FLOORS_KEY, queryFn: fetchFloors })
+  const { data: floors, isLoading } = useQuery({ ...floorsQuery({}) })
 
-  useRealtimeInvalidate('tables', [FLOORS_KEY])
-  useRealtimeInvalidate('floors', [FLOORS_KEY])
+  useRealtimeInvalidate('tables', [FLOORS_QUERY_KEY])
+  useRealtimeInvalidate('floors', [FLOORS_QUERY_KEY])
 
   function invalidate() {
-    queryClient.invalidateQueries({ queryKey: FLOORS_KEY })
+    queryClient.invalidateQueries({ queryKey: FLOORS_QUERY_KEY })
   }
 
   const addFloorMutation = useMutation({
     mutationFn: createFloor,
     onSuccess: invalidate,
-    onError: () => toast.error('Could not add floor'),
+    onError: (e: Error) => toast.error(e.message ?? 'Could not add floor'),
   })
 
   const addTableMutation = useMutation({
     mutationFn: createTable,
     onSuccess: invalidate,
-    onError: () => toast.error('Could not add table'),
+    onError: (e: Error) => toast.error(e.message ?? 'Could not add table'),
   })
 
   const deleteFloorMutation = useMutation({
     mutationFn: deleteFloor,
     onSuccess: invalidate,
-    onError: () => toast.error('Could not delete floor (it may still have tables)'),
+    onError: (e: Error) => toast.error(e.message ?? 'Could not delete floor'),
   })
 
   const deleteTableMutation = useMutation({
     mutationFn: deleteTable,
     onSuccess: invalidate,
-    onError: () => toast.error('Could not delete table'),
+    onError: (e: Error) => toast.error(e.message ?? 'Could not delete table'),
   })
 
   const toggleActiveMutation = useMutation({
@@ -166,7 +166,8 @@ export function TablesPage() {
                             <AlertDialogHeader>
                               <AlertDialogTitle>Delete table "{t.name}"?</AlertDialogTitle>
                               <AlertDialogDescription>
-                                This can't be undone. Existing bills for this table stay in Bills.
+                                This can't be undone. Only a table that has never been seated can be
+                                deleted — once it has orders or bills against it, deactivate it instead.
                               </AlertDialogDescription>
                             </AlertDialogHeader>
                             <AlertDialogFooter>

@@ -17,7 +17,10 @@ export function AppShell() {
   }
 
   return (
-    <div className="flex min-h-svh">
+    // Exactly one viewport tall with overflow clipped, so the only thing that scrolls is
+    // <main>. With min-h-svh the document itself grew and carried the sidebar and header
+    // up with it, which is why the nav slid away on long pages.
+    <div className="flex h-svh overflow-hidden">
       {/* Desktop sidebar */}
       <div className="hidden lg:block">
         <Sidebar profile={profile} onNavigate={() => {}} />
@@ -36,8 +39,8 @@ export function AppShell() {
         </div>
       )}
 
-      <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex items-center justify-between border-b bg-[#FFF7F2] px-3 py-2.5 sm:px-6 sm:py-3">
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+        <header className="flex shrink-0 items-center justify-between border-b bg-[#FFF7F2] px-3 py-2.5 sm:px-6 sm:py-3">
           <div className="flex items-center gap-2 sm:gap-3">
             {/* Hamburger button — mobile only */}
             <button
@@ -65,7 +68,7 @@ export function AppShell() {
             Sign out
           </Button>
         </header>
-        <main className="min-w-0 flex-1 overflow-y-auto bg-muted/20 p-3 sm:p-4 md:p-6">
+        <main className="min-h-0 min-w-0 flex-1 overflow-y-auto bg-muted/20 p-3 sm:p-4 md:p-6">
           <Outlet />
         </main>
       </div>

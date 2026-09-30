@@ -1,84 +1,126 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { router } from 'expo-router'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  Alert,
-  FlatList,
+  Animated,
+  PanResponder,
   Pressable,
   RefreshControl,
-  SafeAreaView,
+  ScrollView,
   StyleSheet,
   Text,
+  useWindowDimensions,
+  Vibration,
   View,
 } from 'react-native'
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Ionicons } from '@expo/vector-icons'
-import * as SecureStore from 'expo-secure-store'
-import { fetchKitchenOrders, markItemsCooking, markItemsReady } from '../../src/lib/api'
+import {
+  fetchKitchenOrders,
+  fetchRecentlyServed,
+  markItemsCooking,
+  markItemsNew,
+  markItemsReady,
+  markItemServed,
+  recordWaste,
+  type WasteReason,
+} from '../../src/lib/api'
 import { supabase } from '../../src/lib/supabase'
-import type { Order } from '../../src/lib/types'
+import type { Order, OrderItem } from '../../src/lib/types'
+import { useKdsSettings } from '../../src/kds/settings'
+import {
+  CARDS_PER_COLUMN,
+  FOUR_COLUMN_MIN_WIDTH,
+  STAGES,
+  stageColor,
+  screenClassFor,
+  stageOfOrder,
+  themeFor,
+  touchSize,
+  typeScale,
+  type KdsTheme,
+  type Stage,
+} from '../../src/kds/theme'
+import { KotCard } from '../../src/components/kds/KotCard'
+import { WasteDialog, type WasteTarget } from '../../src/components/kds/WasteDialog'
+import { AllDayPanel } from '../../src/components/kds/AllDayPanel'
 
-const ORANGE = '#E8713A'
-const GREEN = '#22c55e'
-
-// Tickets the kitchen has cleared off this screen by hand. Display-only: the order is
-// still 'ready' and still waiting on a waiter to serve it. Persisted so a reload of an
-// always-on KDS does not bring every cleared ticket back.
-const DISMISSED_KEY = 'kds_dismissed_orders'
-
-const STATUS_COLORS: Record<string, string> = {
-  ordered: '#3b82f6',
-  cooking: ORANGE,
-  ready: '#22c55e',
+interface UndoAction {
+  label: string
+  itemIds: string[]
+  revertTo: 'ordered' | 'cooking' | 'ready'
 }
 
-async function persistDismissed(ids: string[]) {
-  try {
-    // SecureStore caps values at 2KB on Android; the list self-prunes on every load, so
-    // this only guards a pathological burst.
-    await SecureStore.setItemAsync(DISMISSED_KEY, JSON.stringify(ids.slice(-40)))
-  } catch {
-    // Display-only state — losing it just means cleared tickets reappear once.
-  }
-}
+export default function KitchenBoard() {
+  const { width, height } = useWindowDimensions()
+  const insets = useSafeAreaInsets()
+  const { settings, update, loaded } = useKdsSettings()
+  // Tab bar height from the kitchen layout (60 + bottom inset), plus room for the undo bar.
+  const bottomClearance = 60 + insets.bottom + 16
+  const screen = screenClassFor(width)
+  const theme = themeFor(settings)
+  const t = typeScale(screen, settings.fontScale)
+  const touch = touchSize(screen)
+  const isPhone = screen === 'phone'
 
-export default function KitchenOrdersScreen() {
   const [orders, setOrders] = useState<Order[]>([])
+  const [servedOrders, setServedOrders] = useState<Order[]>([])
   const [refreshing, setRefreshing] = useState(false)
-  const [dismissed, setDismissed] = useState<string[]>([])
+  const [wasteTarget, setWasteTarget] = useState<WasteTarget | null>(null)
+  const [undo, setUndo] = useState<UndoAction | null>(null)
+  const [phoneStage, setPhoneStage] = useState<Stage>('new')
+  const [flash, setFlash] = useState(false)
+
+  // Re-render once a second so the age timers and colour thresholds stay live without
+  // refetching anything.
+  const [, setTick] = useState(0)
+  useEffect(() => {
+    const timer = setInterval(() => setTick((n) => n + 1), 1000)
+    return () => clearInterval(timer)
+  }, [])
+
+  const knownOrderIds = useRef<Set<string>>(new Set())
+  const undoTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const load = useCallback(async () => {
     try {
       const data = await fetchKitchenOrders()
+
+      // Announce genuinely new tickets, not the first load (which would alarm on every
+      // app start) and not re-renders of tickets already on the board.
+      const incoming = data.filter((o) => !knownOrderIds.current.has(o.id))
+      const firstLoad = knownOrderIds.current.size === 0
+      if (!firstLoad && incoming.length > 0 && settings.soundEnabled) {
+        Vibration.vibrate(400)
+        setFlash(true)
+        setTimeout(() => setFlash(false), 1200)
+      }
+      knownOrderIds.current = new Set(data.map((o) => o.id))
       setOrders(data)
 
-      // Self-pruning: once an order leaves the board for real (served, cancelled, or
-      // settled with the bill) its id is dropped, so the list cannot grow without bound.
-      setDismissed((prev) => {
-        const live = new Set(data.map((o) => o.id))
-        const next = prev.filter((id) => live.has(id))
-        if (next.length !== prev.length) void persistDismissed(next)
-        return next
-      })
+      // The Served column is a short memory, not a log: what just went out, so staff can
+      // confirm it or pull one back. The full record lives under History.
+      try { setServedOrders(await fetchRecentlyServed(12)) } catch { /* non-critical */ }
     } catch (err) {
       console.error('Failed to load kitchen orders', err)
     }
-  }, [])
+  }, [settings.soundEnabled])
 
-  useEffect(() => {
-    SecureStore.getItemAsync(DISMISSED_KEY)
-      .then((raw) => { if (raw) setDismissed(JSON.parse(raw)) })
-      .catch(() => {})
-  }, [])
-
-  useEffect(() => {
-    load()
-  }, [load])
+  useEffect(() => { load() }, [load])
 
   useEffect(() => {
     const channel = supabase
-      .channel('kitchen-orders')
+      .channel('kitchen-board')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, () => load())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'order_items' }, () => load())
       .subscribe()
     return () => { supabase.removeChannel(channel) }
+  }, [load])
+
+  // Realtime can be missed on a tablet that has been idle; a slow poll keeps the board
+  // truthful without hammering the API.
+  useEffect(() => {
+    const timer = setInterval(() => { void load() }, 20_000)
+    return () => clearInterval(timer)
   }, [load])
 
   async function handleRefresh() {
@@ -87,262 +129,447 @@ export default function KitchenOrdersScreen() {
     setRefreshing(false)
   }
 
-  async function handleStartCooking(itemIds: string[]) {
+  function armUndo(action: UndoAction) {
+    if (undoTimer.current) clearTimeout(undoTimer.current)
+    setUndo(action)
+    undoTimer.current = setTimeout(() => setUndo(null), 6000)
+  }
+
+  const stationsAvailable = useMemo(() => {
+    const set = new Set<string>()
+    for (const o of orders) for (const i of o.items) if (i.station) set.add(i.station)
+    return [...set].sort()
+  }, [orders])
+
+  /** Station filter hides items, and a ticket with nothing left for this station. */
+  const visibleOrders = useMemo(() => {
+    if (!settings.station) return orders
+    return orders
+      .map((o) => ({ ...o, items: o.items.filter((i) => i.station === settings.station) }))
+      .filter((o) => o.items.length > 0)
+  }, [orders, settings.station])
+
+  const byStage = useMemo(() => {
+    const map: Record<Stage, Order[]> = { new: [], preparing: [], ready: [], served: [] }
+    for (const o of visibleOrders) {
+      const stage = stageOfOrder(o.items)
+      if (stage !== 'served') map[stage].push(o)
+    }
+    map.served = servedOrders
+    // Oldest first in the working columns: the chef's next job is always at the top.
+    for (const key of ['new', 'preparing', 'ready'] as const) {
+      map[key].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
+    }
+    return map
+  }, [visibleOrders, servedOrders])
+
+  async function advance(order: Order) {
+    const stage = stageOfOrder(order.items)
+    const live = order.items.filter((i) => i.status !== 'cancelled' && i.status !== 'wasted')
     try {
-      await markItemsCooking(itemIds)
+      if (stage === 'new') {
+        const ids = live.filter((i) => i.status === 'ordered').map((i) => i.id)
+        await markItemsCooking(ids)
+        armUndo({ label: `KOT #${order.kot_number} started`, itemIds: ids, revertTo: 'ordered' })
+      } else if (stage === 'preparing') {
+        const ids = live.filter((i) => i.status === 'cooking').map((i) => i.id)
+        await markItemsReady(ids)
+        armUndo({ label: `KOT #${order.kot_number} ready`, itemIds: ids, revertTo: 'cooking' })
+      } else {
+        const ids = live.filter((i) => i.status === 'ready').map((i) => i.id)
+        await markItemServed(ids)
+        armUndo({ label: `KOT #${order.kot_number} served`, itemIds: ids, revertTo: 'ready' })
+      }
       await load()
-    } catch (err: any) {
-      Alert.alert('Error', err.message || 'Could not update status')
+    } catch (err) {
+      console.error('Could not advance ticket', err)
     }
   }
 
-  async function handleMarkReady(itemIds: string[]) {
+  /** Drag target: move every live item of a ticket to the dropped column. */
+  async function moveToStage(order: Order, stage: Stage) {
+    const current = stageOfOrder(order.items)
+    if (current === stage) return
+    const live = order.items.filter((i) => i.status !== 'cancelled' && i.status !== 'wasted')
+    const ids = live.map((i) => i.id)
+    if (ids.length === 0) return
+    const revertTo =
+      current === 'new' ? 'ordered' : current === 'preparing' ? 'cooking' : 'ready'
     try {
-      await markItemsReady(itemIds)
+      if (stage === 'new') await markItemsNew(ids)
+      else if (stage === 'preparing') await markItemsCooking(ids)
+      else if (stage === 'ready') await markItemsReady(ids)
+      else await markItemServed(ids)
+      armUndo({ label: `KOT #${order.kot_number} → ${stage}`, itemIds: ids, revertTo })
       await load()
-    } catch (err: any) {
-      Alert.alert('Error', err.message || 'Could not update status')
+    } catch (err) {
+      console.error('Could not move ticket', err)
     }
   }
 
-  function handleDismiss(order: Order) {
-    Alert.alert(
-      `Clear KOT #${order.kot_number}?`,
-      'This only removes the ticket from the kitchen screen. The order stays ready until a waiter marks it served.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Clear',
-          onPress: () => {
-            setDismissed((prev) => {
-              const next = [...prev, order.id]
-              void persistDismissed(next)
-              return next
-            })
-          },
+  /** Explicit backward step. Kitchens do not run in a straight line. */
+  async function moveBack(order: Order, to: Stage) {
+    await moveToStage(order, to)
+  }
+
+  async function runUndo() {
+    if (!undo) return
+    try {
+      if (undo.revertTo === 'ordered') await markItemsNew(undo.itemIds)
+      else if (undo.revertTo === 'cooking') await markItemsCooking(undo.itemIds)
+      else await markItemsReady(undo.itemIds)
+      setUndo(null)
+      await load()
+    } catch (err) {
+      console.error('Could not undo', err)
+    }
+  }
+
+  async function confirmWaste(reason: WasteReason, note: string, reFire: boolean) {
+    if (!wasteTarget) return
+    const target = wasteTarget
+    setWasteTarget(null)
+    try {
+      await recordWaste(target.orderItemId, reason, { note, reFire, qty: target.qty })
+      await load()
+    } catch (err) {
+      console.error('Could not record waste', err)
+    }
+  }
+
+  // ---- drag and drop -------------------------------------------------------
+  // PanResponder + Animated are built into React Native, so touch dragging needs no extra
+  // native dependency (gesture-handler/reanimated are not installed here).
+  //
+  // Everything the gesture reads lives in refs. A PanResponder captures the values from
+  // the render that created it and keeps them for the whole gesture, so reading state
+  // directly meant the drop handler always saw the hover column as it was at touch-down
+  // (null) and the card never moved.
+  const boardRef = useRef<View>(null)
+  const boardOriginX = useRef(0)
+  const columnWidth = useRef(0)
+  const hoverRef = useRef<Stage | null>(null)
+  const ordersRef = useRef(new Map<string, Order>())
+  const columnsRef = useRef<typeof STAGES>(STAGES)
+  const respondersRef = useRef(new Map<string, ReturnType<typeof PanResponder.create>>())
+
+  const [dragOrderId, setDragOrderId] = useState<string | null>(null)
+  const [hoverStage, setHoverStage] = useState<Stage | null>(null)
+  const dragPos = useRef(new Animated.ValueXY({ x: 0, y: 0 })).current
+
+  const dragEnabled = !isPhone && settings.view === 'board'
+
+  // Keep the lookup the gesture uses in step with the latest data.
+  ordersRef.current = new Map([...visibleOrders, ...servedOrders].map((o) => [o.id, o]))
+
+  /** Absolute window position — onLayout gives coordinates relative to the parent, which
+   *  cannot be compared with a touch's pageX. */
+  const measureBoard = useCallback(() => {
+    boardRef.current?.measureInWindow((x, _y, w) => {
+      boardOriginX.current = x
+      columnWidth.current = w / columnsRef.current.length
+    })
+  }, [])
+
+  /**
+   * Pan handlers for the whole card.
+   *
+   * The gesture is claimed only on a clearly HORIZONTAL movement. That single rule makes
+   * three interactions coexist on the same surface without a handle:
+   *   - a tap falls through to the buttons underneath (no capture phase is used)
+   *   - a vertical swipe stays with the column's ScrollView
+   *   - a horizontal drag moves the ticket between columns
+   */
+  function dragPropsFor(orderId: string) {
+    if (!dragEnabled) return {}
+
+    let responder = respondersRef.current.get(orderId)
+    if (!responder) {
+      responder = PanResponder.create({
+        // No *Capture* variants: children must get first refusal so taps still work.
+        onStartShouldSetPanResponder: () => false,
+        onMoveShouldSetPanResponder: (_e, g) =>
+          Math.abs(g.dx) > 12 && Math.abs(g.dx) > Math.abs(g.dy) * 1.5,
+        onPanResponderGrant: () => {
+          measureBoard()
+          hoverRef.current = null
+          setHoverStage(null)
+          setDragOrderId(orderId)
+          dragPos.setValue({ x: 0, y: 0 })
         },
-      ],
+        onPanResponderMove: (e, g) => {
+          dragPos.setValue({ x: g.dx, y: g.dy })
+          const w = columnWidth.current
+          if (w > 0) {
+            const idx = Math.floor((e.nativeEvent.pageX - boardOriginX.current) / w)
+            const cols = columnsRef.current
+            const next = cols[Math.max(0, Math.min(cols.length - 1, idx))].key
+            if (next !== hoverRef.current) {
+              hoverRef.current = next
+              setHoverStage(next)
+            }
+          }
+        },
+        onPanResponderRelease: () => {
+          const target = hoverRef.current
+          const order = ordersRef.current.get(orderId)
+          hoverRef.current = null
+          setHoverStage(null)
+          setDragOrderId(null)
+          Animated.spring(dragPos, {
+            toValue: { x: 0, y: 0 },
+            useNativeDriver: false,
+            friction: 8,
+          }).start()
+          if (order && target && stageOfOrder(order.items) !== target) {
+            void moveToStage(order, target)
+          }
+        },
+        onPanResponderTerminate: () => {
+          hoverRef.current = null
+          setHoverStage(null)
+          setDragOrderId(null)
+          dragPos.setValue({ x: 0, y: 0 })
+        },
+      })
+      respondersRef.current.set(orderId, responder)
+    }
+    return responder.panHandlers
+  }
+
+  function renderCard(order: Order) {
+    return (
+      <Animated.View
+        key={order.id}
+        {...dragPropsFor(order.id)}
+        style={
+          dragOrderId === order.id
+            ? { transform: dragPos.getTranslateTransform(), zIndex: 999, elevation: 24 }
+            : undefined
+        }
+      >
+        <KotCard
+          order={order}
+          theme={theme}
+          screen={screen}
+          settings={settings}
+          onAdvance={advance}
+          onMoveBack={moveBack}
+          onWaste={(_o: Order, item: OrderItem) =>
+            setWasteTarget({ orderItemId: item.id, label: item.menu_item_name, qty: item.qty })
+          }
+          dragging={dragOrderId === order.id}
+        />
+      </Animated.View>
     )
   }
 
-  function elapsedMinutes(createdAt: string): number {
-    return Math.floor((Date.now() - new Date(createdAt).getTime()) / 60000)
+  if (!loaded) {
+    return <View style={[styles.fill, { backgroundColor: theme.bg }]} />
   }
 
-  const dismissedSet = useMemo(() => new Set(dismissed), [dismissed])
-  const visibleOrders = useMemo(
-    () => orders.filter((o) => !dismissedSet.has(o.id)),
-    [orders, dismissedSet],
-  )
-  const clearedCount = orders.length - visibleOrders.length
+  const perColumn = settings.cardsPerRowOverride || CARDS_PER_COLUMN[screen]
+  const columns = width >= FOUR_COLUMN_MIN_WIDTH ? STAGES : STAGES.filter((c) => c.key !== 'served')
+  columnsRef.current = columns
+  const cardMaxHeight = Math.max(220, (height - 220) / perColumn)
 
   return (
-    <SafeAreaView style={styles.container}>
-      <FlatList
-        data={visibleOrders}
-        keyExtractor={(o) => o.id}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={ORANGE} />}
-        renderItem={({ item: order }) => {
-          const elapsed = elapsedMinutes(order.created_at)
-          const isReady = order.status === 'ready'
-          // A ready ticket is waiting on a waiter, not on the kitchen, so it should not
-          // also be screaming for attention.
-          const isUrgent = elapsed >= 15 && !isReady
+    <SafeAreaView style={[styles.fill, { backgroundColor: theme.bg }]} edges={['top', 'left', 'right']}>
+      {/* New-order flash: a full-width bar is visible from across the kitchen, where a
+          toast would not be. */}
+      {flash && <View style={[styles.flash, { backgroundColor: theme.accent }]} />}
 
-          return (
-            <View style={[styles.orderCard, isUrgent && styles.urgentCard, isReady && styles.readyCard]}>
-              <View style={styles.orderHeader}>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.kotLabel}>KOT #{order.kot_number}</Text>
-                  <Text style={styles.tableName}>{order.table_name}</Text>
-                  <Text style={styles.sourceLabel}>
-                    {order.source === 'customer' ? `Customer: ${order.placed_by_name || 'Guest'}` : order.placed_by_name ?? order.source}
-                  </Text>
-                </View>
-                <View style={{ alignItems: 'flex-end' }}>
-                  <Text style={[styles.elapsed, isUrgent && styles.urgentText]}>
-                    {elapsed} min ago
-                  </Text>
-                  <Text style={[styles.orderStatusLabel, isReady && styles.readyStatusLabel]}>
-                    {order.status}
-                  </Text>
-                </View>
-                {isReady && (
-                  <Pressable
-                    style={styles.dismissBtn}
-                    onPress={() => handleDismiss(order)}
-                    hitSlop={8}
-                    accessibilityLabel={`Clear KOT ${order.kot_number} from the screen`}
-                  >
-                    <Ionicons name="close" size={18} color="#9ca3af" />
-                  </Pressable>
-                )}
-              </View>
+      <View style={[styles.topBar, { borderBottomColor: theme.border }]}>
+        <Text style={[styles.title, { fontSize: t.kot * 0.8, color: theme.text }]}>Kitchen</Text>
 
-              {isReady && (
-                <View style={styles.readyBanner}>
-                  <Ionicons name="checkmark-circle" size={14} color={GREEN} />
-                  <Text style={styles.readyBannerText}>Ready — waiting for a waiter to serve</Text>
-                </View>
-              )}
+        <View style={styles.topActions}>
+          <Text style={[styles.headerCount, { fontSize: t.meta + 2, color: theme.textDim }]}>
+            {byStage.new.length + byStage.preparing.length} active
+          </Text>
+        </View>
+      </View>
 
-              {order.items
-                .filter((i) => i.status !== 'cancelled' && i.status !== 'served')
-                .map((item) => (
-                  <View key={item.id} style={styles.itemRow}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.itemName}>
-                        {item.qty}x {item.menu_item_name}
-                        {item.variant_name ? ` (${item.variant_name})` : ''}
-                      </Text>
-                      {item.addons.length > 0 && (
-                        <Text style={styles.addonText}>
-                          + {item.addons.map((a) => a.name).join(', ')}
-                        </Text>
-                      )}
-                      {item.notes && <Text style={styles.noteText}>{item.notes}</Text>}
-                      {item.station && <Text style={styles.stationText}>{item.station}</Text>}
-                    </View>
-                    <View style={styles.itemActions}>
-                      <View style={[styles.statusDot, { backgroundColor: STATUS_COLORS[item.status] ?? '#999' }]} />
-                      {item.status === 'ordered' && (
-                        <Pressable style={styles.cookBtn} onPress={() => handleStartCooking([item.id])}>
-                          <Text style={styles.btnText}>Start</Text>
-                        </Pressable>
-                      )}
-                      {item.status === 'cooking' && (
-                        <Pressable style={styles.readyBtn} onPress={() => handleMarkReady([item.id])}>
-                          <Text style={styles.btnText}>Ready</Text>
-                        </Pressable>
-                      )}
-                    </View>
+      {/* Station filter, built from the stations actually present on the board. */}
+      {stationsAvailable.length > 0 && (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.stationRow} contentContainerStyle={styles.stationBar}>
+          <StationChip label="All stations" active={!settings.station} onPress={() => update({ station: null })} theme={theme} t={t} touch={touch} />
+          {stationsAvailable.map((s) => (
+            <StationChip key={s} label={s} active={settings.station === s} onPress={() => update({ station: s })} theme={theme} t={t} touch={touch} />
+          ))}
+        </ScrollView>
+      )}
+
+      <View style={styles.body}>
+        {settings.showAllDay && <AllDayPanel orders={visibleOrders} theme={theme} screen={screen} settings={settings} />}
+
+        {/* Phone: one column at a time behind tabs. Everything else: full board. */}
+        {isPhone && settings.view === 'board' ? (
+          <>
+            <View style={styles.tabs}>
+              {columns.map((s) => (
+                <Pressable
+                  key={s.key}
+                  onPress={() => setPhoneStage(s.key)}
+                  style={[
+                    styles.tab,
+                    { minHeight: touch * 0.8, borderColor: theme.border },
+                    phoneStage === s.key && { backgroundColor: theme.accent, borderColor: theme.accent },
+                  ]}
+                >
+                  <Text style={[styles.tabText, { fontSize: t.note, color: phoneStage === s.key ? '#fff' : theme.text }]}>
+                    {s.label} ({byStage[s.key].length})
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+            <ScrollView
+              refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={theme.accent} />}
+              contentContainerStyle={[styles.columnContent, { paddingBottom: bottomClearance + 70 }]}
+            >
+              {byStage[phoneStage].map(renderCard)}
+              {byStage[phoneStage].length === 0 && <Empty theme={theme} t={t} />}
+            </ScrollView>
+          </>
+        ) : settings.view === 'grid' ? (
+          <ScrollView
+            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={theme.accent} />}
+            contentContainerStyle={[styles.columnContent, { paddingBottom: bottomClearance + 70 }]}
+          >
+            <View style={styles.grid}>
+              {[...visibleOrders]
+                .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
+                .map((o) => (
+                  <View key={o.id} style={{ width: isPhone ? '100%' : `${100 / Math.max(1, perColumn > 3 ? 3 : perColumn)}%`, paddingHorizontal: 4 }}>
+                    {renderCard(o)}
                   </View>
                 ))}
-
-              {/* Bulk actions */}
-              <View style={styles.bulkRow}>
-                {order.items.some((i) => i.status === 'ordered') && (
-                  <Pressable
-                    style={styles.cookBtn}
-                    onPress={() =>
-                      handleStartCooking(order.items.filter((i) => i.status === 'ordered').map((i) => i.id))
-                    }
-                  >
-                    <Text style={styles.btnText}>Start all</Text>
-                  </Pressable>
-                )}
-                {order.items.some((i) => i.status === 'cooking') && (
-                  <Pressable
-                    style={styles.readyBtn}
-                    onPress={() =>
-                      handleMarkReady(order.items.filter((i) => i.status === 'cooking').map((i) => i.id))
-                    }
-                  >
-                    <Text style={styles.btnText}>All ready</Text>
-                  </Pressable>
-                )}
-              </View>
             </View>
-          )
-        }}
-        ListEmptyComponent={
-          <View style={styles.emptyContainer}>
-            <Text style={styles.emptyCheck}>✓</Text>
-            <Text style={styles.emptyText}>No pending orders</Text>
+            {visibleOrders.length === 0 && <Empty theme={theme} t={t} />}
+          </ScrollView>
+        ) : (
+          <View ref={boardRef} style={styles.board} onLayout={measureBoard}>
+            {columns.map((s) => (
+              <View
+                key={s.key}
+                style={[
+                  styles.column,
+                  {
+                    backgroundColor: hoverStage === s.key ? theme.cardRaised : 'transparent',
+                    borderColor: hoverStage === s.key ? theme.accent : 'transparent',
+                  },
+                ]}
+              >
+                <View style={[styles.columnHeader, { borderBottomColor: theme.border }]}>
+                  <Ionicons name={s.icon} size={t.item} color={stageColor(s.key, theme)} />
+                  <Text style={[styles.columnTitle, { fontSize: t.item, color: theme.text }]}>
+                    {s.label}
+                  </Text>
+                  <View style={[styles.countBadge, { backgroundColor: theme.cardRaised }]}>
+                    <Text style={[styles.countText, { fontSize: t.meta, color: theme.text }]}>
+                      {byStage[s.key].length}
+                    </Text>
+                  </View>
+                </View>
+                <ScrollView
+                  refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={theme.accent} />}
+                  contentContainerStyle={[styles.columnContent, { paddingBottom: bottomClearance + 70 }]}
+                  showsVerticalScrollIndicator={false}
+                  scrollEnabled={!dragOrderId}
+                >
+                  {byStage[s.key].map(renderCard)}
+                  {byStage[s.key].length === 0 && <Empty theme={theme} t={t} />}
+                </ScrollView>
+              </View>
+            ))}
           </View>
-        }
-        ListFooterComponent={
-          clearedCount > 0 ? (
-            <Pressable
-              style={styles.restoreBtn}
-              onPress={() => { setDismissed([]); void persistDismissed([]) }}
-            >
-              <Ionicons name="eye-outline" size={14} color="#888" />
-              <Text style={styles.restoreText}>
-                {clearedCount} cleared ticket{clearedCount === 1 ? '' : 's'} · show again
-              </Text>
-            </Pressable>
-          ) : null
-        }
+        )}
+      </View>
+
+      {/* Undo */}
+      {undo && (
+        <View style={[styles.undoBar, { bottom: bottomClearance, backgroundColor: theme.cardRaised, borderColor: theme.border }]}>
+          <Text style={[styles.undoText, { fontSize: t.note, color: theme.text }]} numberOfLines={1}>
+            {undo.label}
+          </Text>
+          <Pressable onPress={runUndo} style={[styles.undoBtn, { minHeight: touch * 0.72, backgroundColor: theme.accent }]}>
+            <Ionicons name="arrow-undo" size={t.note + 2} color="#fff" />
+            <Text style={[styles.undoBtnText, { fontSize: t.note }]}>Undo</Text>
+          </Pressable>
+        </View>
+      )}
+
+      <WasteDialog
+        target={wasteTarget}
+        theme={theme}
+        screen={screen}
+        settings={settings}
+        onCancel={() => setWasteTarget(null)}
+        onConfirm={confirmWaste}
       />
     </SafeAreaView>
   )
 }
 
+function StationChip({
+  label, active, onPress, theme, t, touch,
+}: {
+  label: string
+  active: boolean
+  onPress: () => void
+  theme: KdsTheme
+  t: ReturnType<typeof typeScale>
+  touch: number
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      style={[
+        styles.stationChip,
+        { minHeight: touch * 0.72, borderColor: active ? theme.accent : theme.border, backgroundColor: active ? theme.accent : 'transparent' },
+      ]}
+    >
+      <Text style={[styles.stationText, { fontSize: t.note, color: active ? '#fff' : theme.text }]}>{label}</Text>
+    </Pressable>
+  )
+}
+
+function Empty({ theme, t }: { theme: KdsTheme; t: ReturnType<typeof typeScale> }) {
+  return (
+    <View style={styles.empty}>
+      <Ionicons name="checkmark-circle-outline" size={t.kot} color={theme.textDim} />
+      <Text style={[styles.emptyText, { fontSize: t.note, color: theme.textDim }]}>Nothing here</Text>
+    </View>
+  )
+}
+
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#fafafa' },
-  orderCard: {
-    backgroundColor: '#fff',
-    marginHorizontal: 12,
-    marginVertical: 6,
-    borderRadius: 14,
-    padding: 16,
-    elevation: 1,
-    shadowColor: '#000',
-    shadowOpacity: 0.04,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 1 },
-    borderWidth: 1,
-    borderColor: '#f0f0f0',
-  },
-  urgentCard: { borderLeftWidth: 4, borderLeftColor: '#ef4444' },
-  orderHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 10 },
-  kotLabel: { fontSize: 16, fontWeight: '700', color: '#1a1a1a' },
-  tableName: { fontSize: 13, color: '#888', marginTop: 2 },
-  sourceLabel: { fontSize: 11, color: ORANGE, fontWeight: '500', marginTop: 2 },
-  elapsed: { fontSize: 12, color: '#999' },
-  urgentText: { color: '#ef4444', fontWeight: '600' },
-  orderStatusLabel: { fontSize: 11, color: '#999', textTransform: 'capitalize', marginTop: 2 },
-  readyCard: { borderLeftWidth: 4, borderLeftColor: GREEN },
-  readyStatusLabel: { color: GREEN, fontWeight: '700' },
-  dismissBtn: { paddingLeft: 10, paddingTop: 2 },
-  readyBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    backgroundColor: '#f0fdf4',
-    borderRadius: 8,
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-    marginBottom: 8,
-  },
-  readyBannerText: { fontSize: 12, color: '#15803d', fontWeight: '600' },
-  restoreBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    paddingVertical: 14,
-  },
-  restoreText: { fontSize: 12, color: '#888', fontWeight: '500' },
-  itemRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 8,
-    borderTopWidth: 1,
-    borderTopColor: '#f5f5f5',
-  },
-  itemName: { fontSize: 15, fontWeight: '500', color: '#1a1a1a' },
-  addonText: { fontSize: 12, color: '#999', marginTop: 2 },
-  noteText: { fontSize: 12, color: ORANGE, fontStyle: 'italic', marginTop: 2 },
-  stationText: { fontSize: 11, color: '#3b82f6', fontWeight: '500', marginTop: 2 },
-  itemActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  statusDot: { width: 10, height: 10, borderRadius: 5 },
-  cookBtn: {
-    backgroundColor: ORANGE,
-    paddingHorizontal: 14,
-    paddingVertical: 7,
-    borderRadius: 8,
-  },
-  readyBtn: {
-    backgroundColor: '#22c55e',
-    paddingHorizontal: 14,
-    paddingVertical: 7,
-    borderRadius: 8,
-  },
-  btnText: { color: '#fff', fontSize: 12, fontWeight: '700' },
-  bulkRow: { flexDirection: 'row', gap: 8, marginTop: 10, justifyContent: 'flex-end' },
-  emptyContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', marginTop: 80 },
-  emptyCheck: { fontSize: 40, marginBottom: 8, color: '#22c55e' },
-  emptyText: { fontSize: 16, color: '#999' },
+  fill: { flex: 1 },
+  flash: { position: 'absolute', top: 0, left: 0, right: 0, height: 6, zIndex: 100 },
+  topBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 10, borderBottomWidth: 1 },
+  title: { fontWeight: '800' },
+  topActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  headerCount: { fontWeight: '700' },
+  iconBtn: { alignItems: 'center', justifyContent: 'center', borderRadius: 12, borderWidth: 1, paddingHorizontal: 10 },
+  stationRow: { flexGrow: 0 },
+  stationBar: { paddingHorizontal: 16, paddingVertical: 10, gap: 8 },
+  stationChip: { justifyContent: 'center', paddingHorizontal: 16, borderRadius: 20, borderWidth: 2 },
+  stationText: { fontWeight: '700' },
+  body: { flex: 1, paddingHorizontal: 12 },
+  tabs: { flexDirection: 'row', gap: 8, marginBottom: 10 },
+  tab: { flex: 1, alignItems: 'center', justifyContent: 'center', borderRadius: 12, borderWidth: 2, paddingHorizontal: 6 },
+  tabText: { fontWeight: '800' },
+  board: { flex: 1, flexDirection: 'row', gap: 8 },
+  column: { flex: 1, borderRadius: 14, borderWidth: 2 },
+  columnHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 10, paddingVertical: 10, borderBottomWidth: 1 },
+  columnTitle: { fontWeight: '800', flex: 1 },
+  countBadge: { minWidth: 30, alignItems: 'center', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8 },
+  countText: { fontWeight: '800', fontVariant: ['tabular-nums'] },
+  columnContent: { padding: 8, paddingBottom: 90 },
+  grid: { flexDirection: 'row', flexWrap: 'wrap' },
+  empty: { alignItems: 'center', gap: 8, paddingVertical: 40 },
+  emptyText: { fontWeight: '600' },
+  undoBar: { position: 'absolute', left: 16, right: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, paddingHorizontal: 16, paddingVertical: 12, borderRadius: 14, borderWidth: 1, zIndex: 60, elevation: 12 },
+  undoText: { fontWeight: '700', flex: 1 },
+  undoBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 16, borderRadius: 10 },
+  undoBtnText: { color: '#fff', fontWeight: '800' },
 })

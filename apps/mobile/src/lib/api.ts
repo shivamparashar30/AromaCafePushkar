@@ -137,11 +137,11 @@ export async function fetchSessionOrders(sessionId: string): Promise<Order[]> {
   const { data, error } = await supabase
     .from('orders')
     .select(`
-      id, kot_number, status, source, placed_by_name, created_at,
+      id, kot_number, status, source, placed_by_name, created_at, is_priority,
       table_session:table_sessions(status, table:tables(name)),
       order_items(
         id, qty, unit_price, notes, status, station,
-        menu_item:menu_items(name),
+        menu_item:menu_items(name, food_type, tags),
         variant:item_variants(name),
         order_item_addons(addon:addons(name, price))
       )
@@ -159,6 +159,7 @@ export async function fetchSessionOrders(sessionId: string): Promise<Order[]> {
     placed_by_name: (o as any).placed_by_name ?? null,
     created_at: o.created_at,
     table_name: (o.table_session as any)?.table?.name ?? '',
+    is_priority: (o as any).is_priority ?? false,
     items: (o.order_items ?? []).map((i: any) => ({
       id: i.id,
       qty: i.qty,
@@ -168,6 +169,8 @@ export async function fetchSessionOrders(sessionId: string): Promise<Order[]> {
       menu_item_name: i.menu_item?.name ?? '',
       variant_name: i.variant?.name ?? null,
       station: i.station,
+      food_type: i.menu_item?.food_type ?? null,
+      tags: i.menu_item?.tags ?? [],
       addons: (i.order_item_addons ?? []).map((a: any) => ({
         name: a.addon?.name ?? '',
         price: a.addon?.price ?? 0,
@@ -201,11 +204,11 @@ export async function fetchKitchenOrders(): Promise<Order[]> {
   const { data, error } = await supabase
     .from('orders')
     .select(`
-      id, kot_number, status, source, placed_by_name, created_at,
+      id, kot_number, status, source, placed_by_name, created_at, is_priority,
       table_session:table_sessions(status, table:tables(name)),
       order_items(
         id, qty, unit_price, notes, status, station,
-        menu_item:menu_items(name),
+        menu_item:menu_items(name, food_type, tags),
         variant:item_variants(name),
         order_item_addons(addon:addons(name, price))
       )
@@ -232,6 +235,7 @@ export async function fetchKitchenOrders(): Promise<Order[]> {
     placed_by_name: (o as any).placed_by_name ?? null,
     created_at: o.created_at,
     table_name: (o.table_session as any)?.table?.name ?? '',
+    is_priority: (o as any).is_priority ?? false,
     items: (o.order_items ?? []).map((i: any) => ({
       id: i.id,
       qty: i.qty,
@@ -241,6 +245,8 @@ export async function fetchKitchenOrders(): Promise<Order[]> {
       menu_item_name: i.menu_item?.name ?? '',
       variant_name: i.variant?.name ?? null,
       station: i.station,
+      food_type: i.menu_item?.food_type ?? null,
+      tags: i.menu_item?.tags ?? [],
       addons: (i.order_item_addons ?? []).map((a: any) => ({
         name: a.addon?.name ?? '',
         price: a.addon?.price ?? 0,
@@ -292,4 +298,95 @@ export async function fetchOutletName(): Promise<string> {
   const { data, error } = await supabase.rpc('public_outlet_info')
   if (error) throw error
   return (data ?? [])[0]?.name ?? ''
+}
+
+// ---------------------------------------------------------------------------
+// Kitchen display actions
+// ---------------------------------------------------------------------------
+
+/** Steps items back a stage — undo for an accidental Start or Ready. */
+export async function markItemsNew(itemIds: string[]) {
+  const { error } = await supabase.rpc('set_item_status', {
+    p_item_ids: itemIds,
+    p_status: 'ordered',
+  })
+  if (error) throw error
+}
+
+export type WasteReason =
+  | 'Burnt'
+  | 'Dropped'
+  | 'Wrong order'
+  | 'Customer returned'
+  | 'Expired'
+  | 'Other'
+
+/**
+ * Records waste against one order item. The server marks it wasted, writes the audit
+ * row, and — when reFire is set — puts a fresh line back on the board so the dish is
+ * cooked again. Wasted lines are excluded from the bill.
+ */
+export async function recordWaste(
+  orderItemId: string,
+  reason: WasteReason,
+  opts: { note?: string; reFire?: boolean; qty?: number } = {},
+) {
+  const { error } = await supabase.rpc('record_waste', {
+    p_order_item_id: orderItemId,
+    p_reason: reason,
+    p_note: opts.note ?? undefined,
+    p_refire: opts.reFire ?? false,
+    p_qty: opts.qty ?? undefined,
+  })
+  if (error) throw error
+}
+
+/** Recently served tickets, so a mistakenly-served KOT can be recalled to the board. */
+export async function fetchRecentlyServed(limitTo = 10): Promise<Order[]> {
+  const { data, error } = await supabase
+    .from('orders')
+    .select(`
+      id, kot_number, status, source, placed_by_name, created_at, is_priority,
+      table_session:table_sessions(status, table:tables(name)),
+      order_items(
+        id, qty, unit_price, notes, status, station,
+        menu_item:menu_items(name, food_type, tags),
+        variant:item_variants(name),
+        order_item_addons(addon:addons(name, price))
+      )
+    `)
+    .eq('status', 'served')
+    .order('updated_at', { ascending: false })
+    .limit(limitTo)
+
+  if (error) throw error
+
+  return (data ?? [])
+    .filter((o: any) => o.table_session?.status === 'open')
+    .map((o: any) => ({
+      id: o.id,
+      kot_number: o.kot_number,
+      status: o.status,
+      source: o.source,
+      placed_by_name: o.placed_by_name ?? null,
+      created_at: o.created_at,
+      table_name: o.table_session?.table?.name ?? '',
+      is_priority: o.is_priority ?? false,
+      items: (o.order_items ?? []).map((i: any) => ({
+        id: i.id,
+        qty: i.qty,
+        unit_price: i.unit_price,
+        notes: i.notes,
+        status: i.status,
+        menu_item_name: i.menu_item?.name ?? '',
+        variant_name: i.variant?.name ?? null,
+        station: i.station,
+        food_type: i.menu_item?.food_type ?? null,
+        tags: i.menu_item?.tags ?? [],
+        addons: (i.order_item_addons ?? []).map((a: any) => ({
+          name: a.addon?.name ?? '',
+          price: a.addon?.price ?? 0,
+        })),
+      })),
+    }))
 }

@@ -19,6 +19,10 @@ export interface OrderItem {
   variant_name: string | null
   addons: { name: string; price: number }[]
   station: string | null
+  /** veg | non_veg | egg — drives the dot the kitchen reads at a glance. */
+  food_type: string | null
+  /** Free-form menu tags, used for allergen / Jain markers. */
+  tags: string[]
 }
 
 export interface Order {
@@ -29,6 +33,7 @@ export interface Order {
   placed_by_name: string | null
   created_at: string
   table_name: string
+  is_priority: boolean
   items: OrderItem[]
 }
 

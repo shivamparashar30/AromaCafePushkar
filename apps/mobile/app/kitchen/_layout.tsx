@@ -54,18 +54,31 @@ export default function KitchenLayout() {
         name="index"
         options={{
           title: 'Orders',
-          headerTitle: 'Kitchen',
+          // The board draws its own dark header with the view/recall/settings actions.
+          // The navigator's light one both duplicated it and broke the dark theme.
+          headerShown: false,
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="flame-outline" size={size} color={color} />
           ),
         }}
       />
       <Tabs.Screen
-        name="account"
+        name="history"
         options={{
-          title: 'Account',
+          title: 'History',
+          headerShown: false,
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="person-outline" size={size} color={color} />
+            <Ionicons name="time-outline" size={size} color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="settings"
+        options={{
+          title: 'Settings',
+          headerShown: false,
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="settings-outline" size={size} color={color} />
           ),
         }}
       />

@@ -75,19 +75,17 @@ export default function RootLayout() {
     onLayoutReady()
   }, [onLayoutReady])
 
-  if (showSplash) {
-    return (
-      <>
-        <StatusBar style="dark" />
-        <AppSplash onReady={() => setShowSplash(false)} />
-      </>
-    )
-  }
-
+  // Expo Router needs the navigator mounted on the first render to resolve the
+  // initial URL, so the splash is drawn over <Slot /> instead of replacing it.
   return (
     <AuthProvider>
       <StatusBar style="dark" />
       <Slot />
+      {showSplash && (
+        <View style={StyleSheet.absoluteFill}>
+          <AppSplash onReady={() => setShowSplash(false)} />
+        </View>
+      )}
     </AuthProvider>
   )
 }

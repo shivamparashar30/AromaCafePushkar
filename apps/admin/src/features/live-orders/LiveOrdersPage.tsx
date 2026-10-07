@@ -26,6 +26,7 @@ import {
 import { BillPanel } from './BillPanel'
 import { ItemPickerDialog } from './ItemPickerDialog'
 import { OrderList } from './OrderList'
+import { SessionCustomerDialog } from './SessionCustomerDialog'
 
 
 
@@ -33,9 +34,14 @@ export function LiveOrdersPage() {
   const { profile } = useAuth()
   const canManage = profile?.role === 'super_admin' || profile?.role === 'manager' || profile?.role === 'cashier'
   const canClaim = profile?.role === 'super_admin' || profile?.role === 'manager'
+  // cancel_item permits only super_admin and manager (a waiter may cancel an un-started
+  // item from the waiter app). canManage includes cashier, so reusing it here offered a
+  // button the server always refused.
+  const canCancelItems = profile?.role === 'super_admin' || profile?.role === 'manager'
   const queryClient = useQueryClient()
   const [selectedTableId, setSelectedTableId] = useState<string | null>(null)
   const [pickerOpen, setPickerOpen] = useState(false)
+  const [customerOpen, setCustomerOpen] = useState(false)
 
   const { data: floors } = useQuery({ ...floorsQuery({ onlyActive: true }) })
   useRealtimeInvalidate('tables', [FLOORS_QUERY_KEY])
@@ -75,7 +81,10 @@ export function LiveOrdersPage() {
 
   const cancelItemMutation = useMutation({
     mutationFn: (itemId: string) => {
-      const reason = window.prompt('Reason for cancelling this item?') ?? ''
+      const reason = window.prompt('Reason for cancelling this item?')
+      // Dismissing the prompt means "don't cancel", not "cancel with no reason" — which
+      // the server would reject anyway once cooking has started.
+      if (reason === null) return Promise.resolve()
       return cancelItem(itemId, reason)
     },
     onSuccess: invalidateAll,
@@ -131,6 +140,15 @@ export function LiveOrdersPage() {
         </div>
       </div>
 
+      <SessionCustomerDialog
+        sessionId={detail?.session?.id ?? null}
+        currentName={detail?.session?.customer_name ?? null}
+        currentPhone={detail?.session?.customer_phone ?? null}
+        open={customerOpen}
+        onOpenChange={setCustomerOpen}
+        onSaved={invalidateAll}
+      />
+
       {/* Selected table detail */}
       <div className="min-w-0">
         {!selectedTable ? (
@@ -145,9 +163,29 @@ export function LiveOrdersPage() {
                 <p className="text-xs text-muted-foreground sm:text-sm">
                   {TABLE_STATUS_LABEL[selectedTable.status] ?? selectedTable.status}
                   {detail.session?.guest_count ? ` · ${detail.session.guest_count} guests` : ''}
-                  {detail.session?.customer_name ? ` · ${detail.session.customer_name}` : ''}
-                  {detail.session?.customer_phone ? ` (${detail.session.customer_phone})` : ''}
                 </p>
+
+                {/* A QR order captures the guest up front; an order taken by staff did
+                    not, so its revenue never reached the customer record. */}
+                {detail.session && (
+                  <button
+                    type="button"
+                    onClick={() => setCustomerOpen(true)}
+                    className="mt-1 flex items-center gap-1.5 text-xs font-medium text-primary hover:underline sm:text-sm"
+                  >
+                    {detail.session.customer_phone ? (
+                      <>
+                        {detail.session.customer_name || 'Customer'}
+                        <span className="text-muted-foreground">
+                          ({detail.session.customer_phone})
+                        </span>
+                        <span className="text-muted-foreground">· edit</span>
+                      </>
+                    ) : (
+                      <>+ Add customer</>
+                    )}
+                  </button>
+                )}
               </div>
               {!detail.session && canClaim && (
                 <Button size="sm" onClick={() => claimMutation.mutate(selectedTable.id)}>Open table</Button>
@@ -182,7 +220,7 @@ export function LiveOrdersPage() {
                   <CardContent>
                     <OrderList
                       orders={detail.orders}
-                      canCancel={canManage}
+                      canCancel={canCancelItems}
                       onCancelItem={(id) => cancelItemMutation.mutate(id)}
                       onServeItem={(id) => serveItemMutation.mutate(id)}
                     />

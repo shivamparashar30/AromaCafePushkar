@@ -2,7 +2,9 @@ import { useFocusEffect, useLocalSearchParams, router, Stack } from 'expo-router
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Alert,
+  Animated,
   FlatList,
+  Modal,
   Platform,
   Pressable,
   RefreshControl,
@@ -16,7 +18,12 @@ import {
 import { Ionicons } from '@expo/vector-icons'
 import { useAuth } from '../../../src/context/AuthContext'
 import {
+  cancelItem,
+  clampPhone,
+  isValidPhone,
+  setSessionCustomer,
   createBill,
+  fetchSessionBill,
   fetchMenuForOrdering,
   fetchSessionOrders,
   leaveTable,
@@ -25,6 +32,7 @@ import {
 } from '../../../src/lib/api'
 import { supabase } from '../../../src/lib/supabase'
 import type { MenuItem, Order } from '../../../src/lib/types'
+import type { SessionBill } from '../../../src/lib/api'
 
 const ORANGE = '#E8713A'
 const ORANGE_LIGHT = '#FFF7F2'
@@ -49,6 +57,21 @@ export default function SessionScreen() {
   const closeGuardRef = useRef<((reason: 'paid' | 'freed') => void) | null>(null)
   // Dishes with variants or add-ons need a choice before they can be priced; without
   // this the waiter silently billed the base price for a Half/Full item.
+  // Whoever raised the bill — waiter, cashier, admin, or the customer requesting it —
+  // the waiter needs to see that it exists before taking another order.
+  const [bill, setBill] = useState<SessionBill | null>(null)
+  const [showBill, setShowBill] = useState(false)
+  // Customer on this table. Captured by the QR flow automatically; for a waiter-taken
+  // order this is the only place it can be recorded, and without it the sale never
+  // reaches the guest's visit count or lifetime spend.
+  const [sessionCustomer, setSessionCustomerState] = useState<{ name: string; phone: string }>({ name: '', phone: '' })
+  const [showCustomer, setShowCustomer] = useState(false)
+  const [custName, setCustName] = useState('')
+  const [custPhone, setCustPhone] = useState('')
+  const [savingCust, setSavingCust] = useState(false)
+  const billAnim = useRef(new Animated.Value(0)).current
+  // Separate from showBill so the sheet can animate OUT before the Modal unmounts.
+  const [billMounted, setBillMounted] = useState(false)
   const [optionsItem, setOptionsItem] = useState<MenuItem | null>(null)
   const [pickedVariant, setPickedVariant] = useState<string | undefined>(undefined)
   const [pickedAddons, setPickedAddons] = useState<string[]>([])
@@ -87,6 +110,19 @@ export default function SessionScreen() {
 
       const data = await fetchSessionOrders(sessionId)
       setOrders(data)
+      try { setBill(await fetchSessionBill(sessionId)) } catch { /* non-blocking */ }
+
+      const { data: sess } = await supabase
+        .from('table_sessions')
+        .select('customer_name, customer_phone')
+        .eq('id', sessionId)
+        .maybeSingle()
+      if (sess) {
+        setSessionCustomerState({
+          name: sess.customer_name ?? '',
+          phone: sess.customer_phone ?? '',
+        })
+      }
       if (data.length > 0 && data[0].table_name) {
         setTableName(data[0].table_name)
         tableNameRef.current = data[0].table_name
@@ -137,6 +173,25 @@ export default function SessionScreen() {
     closeGuardRef.current = handleSessionClosed
   }, [handleSessionClosed])
 
+  useEffect(() => {
+    if (showBill) {
+      setBillMounted(true)
+      Animated.timing(billAnim, {
+        toValue: 1,
+        duration: 260,
+        useNativeDriver: true,
+      }).start()
+    } else if (billMounted) {
+      Animated.timing(billAnim, {
+        toValue: 0,
+        duration: 200,
+        useNativeDriver: true,
+      }).start(({ finished }) => {
+        if (finished) setBillMounted(false)
+      })
+    }
+  }, [showBill, billMounted, billAnim])
+
   // Realtime is the fast path, but it is not a guarantee: the socket can be asleep after
   // the phone was pocketed, and the close event is a single UPDATE that is easy to miss.
   // Nothing else on this screen would ever notice, so the waiter would sit on a dead
@@ -161,6 +216,11 @@ export default function SessionScreen() {
       .channel(`session-${sessionId}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, () => loadOrders())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'order_items' }, () => loadOrders())
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'bills', filter: `session_id=eq.${sessionId}` },
+        () => loadOrders(),
+      )
       .on(
         'postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'table_sessions', filter: `id=eq.${sessionId}` },
@@ -269,6 +329,56 @@ export default function SessionScreen() {
     }
   }
 
+  /**
+   * A waiter may cancel only while the kitchen has not started the item. Past that the
+   * food exists and it becomes a manager's call — enforced server-side; this just avoids
+   * offering a button that would be refused.
+   */
+  function handleCancelItem(item: { id: string; menu_item_name: string; qty: number }) {
+    Alert.alert(
+      'Cancel this item?',
+      `${item.qty}× ${item.menu_item_name} will be removed from the order and the bill.`,
+      [
+        { text: 'Keep it', style: 'cancel' },
+        {
+          text: 'Cancel item',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await cancelItem(item.id)
+              await loadOrders()
+            } catch (err: any) {
+              Alert.alert(
+                "Can't cancel this",
+                err.message || 'The kitchen may have already started it.',
+              )
+            }
+          },
+        },
+      ],
+    )
+  }
+
+  async function handleSaveCustomer() {
+    if (!sessionId) return
+    setSavingCust(true)
+    try {
+      await setSessionCustomer(sessionId, custName.trim(), clampPhone(custPhone))
+      setShowCustomer(false)
+      await loadOrders()
+    } catch (err: any) {
+      Alert.alert('Could not save', err.message || 'Please try again.')
+    } finally {
+      setSavingCust(false)
+    }
+  }
+
+  function openCustomerSheet() {
+    setCustName(sessionCustomer.name)
+    setCustPhone(clampPhone(sessionCustomer.phone))
+    setShowCustomer(true)
+  }
+
   async function handleMarkServed(itemIds: string[]) {
     try {
       await markItemServed(itemIds)
@@ -279,10 +389,12 @@ export default function SessionScreen() {
   }
 
   async function handleCreateBill() {
+    // Same call either way: create_bill raises the bill, or recomputes an existing open
+    // one. That is what makes "add one more thing, then re-bill" safe to repeat.
     try {
       await createBill(sessionId!)
-      Alert.alert('Bill created', 'Bill has been generated')
       await loadOrders()
+      setShowBill(true)
     } catch (err: any) {
       Alert.alert('Error', err.message || 'Could not create bill')
     }
@@ -326,6 +438,21 @@ export default function SessionScreen() {
 
   // Anything not cancelled still belongs to the table, so it blocks freeing it.
   const activeOrderCount = orders.filter((o) => o.status !== 'cancelled').length
+
+  // Billable lines come from the orders already loaded — no extra query, and always in
+  // step with the board. Cancelled and wasted lines are excluded here because
+  // compute_bill_totals excludes them from the total too.
+  const billLines = orders.flatMap((o) =>
+    o.items
+      .filter((i) => i.status !== 'cancelled' && i.status !== 'wasted')
+      .map((i) => ({
+        id: i.id,
+        name: i.menu_item_name + (i.variant_name ? ` (${i.variant_name})` : ''),
+        addons: i.addons.map((a) => a.name).join(', '),
+        qty: i.qty,
+        lineTotal: i.unit_price * i.qty + i.addons.reduce((sum, a) => sum + a.price, 0),
+      })),
+  )
 
   const formatPrice = (paise: number) => `₹${(paise / 100).toFixed(0)}`
 
@@ -591,15 +718,68 @@ export default function SessionScreen() {
         }}
       />
 
+      {/* Customer on this table. Shown before the bill because the right moment to ask
+          is while taking the order, not while settling up. */}
+      <Pressable style={styles.customerRow} onPress={openCustomerSheet}>
+        <Ionicons
+          name={sessionCustomer.phone ? 'person-circle' : 'person-add-outline'}
+          size={20}
+          color={sessionCustomer.phone ? ORANGE : '#999'}
+        />
+        <View style={{ flex: 1 }}>
+          {sessionCustomer.phone ? (
+            <>
+              <Text style={styles.customerName}>{sessionCustomer.name || 'Customer'}</Text>
+              <Text style={styles.customerPhone}>{sessionCustomer.phone}</Text>
+            </>
+          ) : (
+            <Text style={styles.customerAdd}>Add customer</Text>
+          )}
+        </View>
+        <Ionicons name="chevron-forward" size={16} color="#bbb" />
+      </Pressable>
+
+      {/* Bill banner — the waiter's first signal that this table has been billed,
+          whichever device raised it. */}
+      {bill && (
+        <Pressable
+          style={[styles.billBanner, bill.status === 'paid' && styles.billBannerPaid]}
+          onPress={() => setShowBill(true)}
+        >
+          <Ionicons
+            name={bill.status === 'paid' ? 'checkmark-circle' : 'receipt'}
+            size={20}
+            color={bill.status === 'paid' ? '#15803d' : ORANGE}
+          />
+          <View style={{ flex: 1 }}>
+            <Text style={styles.billBannerTitle}>
+              {bill.status === 'paid' ? 'Bill paid' : 'Bill generated'}
+              {bill.bill_no ? ` · ${bill.bill_no}` : ''}
+            </Text>
+            {bill.items_added_since > 0 && bill.status !== 'paid' && (
+              <Text style={styles.billBannerWarn}>
+                {bill.items_added_since} item{bill.items_added_since === 1 ? '' : 's'} added since —
+                tap to review
+              </Text>
+            )}
+          </View>
+          <Text style={styles.billBannerTotal}>{formatPrice(bill.total)}</Text>
+          <Ionicons name="chevron-forward" size={18} color="#bbb" />
+        </Pressable>
+      )}
+
       {/* Action buttons */}
       <View style={styles.actionBar}>
         <Pressable style={styles.orderBtn} onPress={() => setShowMenu(true)}>
           <Ionicons name="add-circle-outline" size={18} color="#fff" />
           <Text style={styles.orderBtnText}>New order</Text>
         </Pressable>
-        <Pressable style={styles.billBtn} onPress={handleCreateBill}>
+        <Pressable
+          style={styles.billBtn}
+          onPress={() => (bill ? setShowBill(true) : handleCreateBill())}
+        >
           <Ionicons name="receipt-outline" size={18} color={ORANGE} />
-          <Text style={styles.billBtnText}>Bill</Text>
+          <Text style={styles.billBtnText}>{bill ? 'View bill' : 'Bill'}</Text>
         </Pressable>
         <Pressable
           style={[styles.leaveBtn, activeOrderCount > 0 && styles.leaveBtnDisabled]}
@@ -670,6 +850,16 @@ export default function SessionScreen() {
                   ]}>
                     {item.status}
                   </Text>
+                  {item.status === 'ordered' && (
+                    <Pressable
+                      style={styles.cancelItemBtn}
+                      onPress={() => handleCancelItem(item)}
+                      hitSlop={6}
+                    >
+                      <Ionicons name="close-circle-outline" size={14} color="#ef4444" />
+                      <Text style={styles.cancelItemText}>Cancel</Text>
+                    </Pressable>
+                  )}
                   {item.status === 'ready' && (
                     <Pressable style={styles.serveBtn} onPress={() => handleMarkServed([item.id])}>
                       <Ionicons name="checkmark" size={14} color="#fff" />
@@ -689,6 +879,176 @@ export default function SessionScreen() {
           </View>
         }
       />
+
+      {/* Customer sheet */}
+      <Modal
+        visible={showCustomer}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowCustomer(false)}
+      >
+        <View style={styles.custOverlay}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setShowCustomer(false)} />
+          <View style={styles.custCard}>
+            <Text style={styles.custTitle}>
+              {sessionCustomer.phone ? 'Edit customer' : 'Add customer'}
+            </Text>
+            <Text style={styles.custHint}>
+              The number links this table&apos;s bills to the guest&apos;s visits and total spend.
+            </Text>
+
+            <TextInput
+              style={styles.custInput}
+              placeholder="Name"
+              placeholderTextColor="#bbb"
+              value={custName}
+              onChangeText={setCustName}
+            />
+            <TextInput
+              style={styles.custInput}
+              placeholder="10-digit mobile number"
+              placeholderTextColor="#bbb"
+              value={custPhone}
+              onChangeText={(v) => setCustPhone(clampPhone(v))}
+              keyboardType="number-pad"
+              maxLength={10}
+            />
+            {custPhone.length > 0 && !isValidPhone(custPhone) && (
+              <Text style={styles.custError}>Enter a valid 10-digit mobile number.</Text>
+            )}
+
+            <View style={styles.custActions}>
+              <Pressable style={styles.optionsCancel} onPress={() => setShowCustomer(false)}>
+                <Text style={styles.optionsCancelText}>Cancel</Text>
+              </Pressable>
+              <Pressable
+                style={[
+                  styles.optionsConfirm,
+                  (savingCust || (custPhone.length > 0 && !isValidPhone(custPhone))) && { opacity: 0.5 },
+                ]}
+                onPress={handleSaveCustomer}
+                disabled={savingCust || (custPhone.length > 0 && !isValidPhone(custPhone))}
+              >
+                <Text style={styles.optionsConfirmText}>
+                  {savingCust ? 'Saving…' : 'Save'}
+                </Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Bill. A real Modal so the backdrop covers the whole screen; an absolute overlay
+          inside this view would dim only part of it. */}
+      <Modal
+        visible={billMounted && !!bill}
+        transparent
+        animationType="none"
+        onRequestClose={() => setShowBill(false)}
+      >
+        <View style={styles.billOverlay}>
+          {/* Backdrop fades in place behind the sheet. It sits BEHIND rather than wrapping
+              it, so a tap on the sheet never reaches it and the sheet's height is governed
+              only by its own style. */}
+          <Animated.View
+            style={[styles.billBackdrop, { opacity: billAnim }]}
+          >
+            <Pressable style={StyleSheet.absoluteFill} onPress={() => setShowBill(false)} />
+          </Animated.View>
+
+          <Animated.View
+            style={[
+              styles.billSheet,
+              {
+                transform: [{
+                  translateY: billAnim.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [600, 0],
+                  }),
+                }],
+              },
+            ]}
+          >
+            {bill && (
+              <>
+                <View style={styles.billGrabber} />
+                <View style={styles.billSheetHeader}>
+                  <Text style={styles.optionsTitle}>{bill.bill_no ?? 'Bill'}</Text>
+                  <View style={[
+                    styles.billStatusPill,
+                    bill.status === 'paid' && { backgroundColor: '#dcfce7' },
+                  ]}>
+                    <Text style={[
+                      styles.billStatusText,
+                      bill.status === 'paid' && { color: '#15803d' },
+                    ]}>
+                      {bill.status === 'paid' ? 'PAID' : 'OPEN'}
+                    </Text>
+                  </View>
+                </View>
+
+                {/* Only the items scroll. Totals stay pinned — a bill whose total can
+                    scroll out of sight is useless at the table. */}
+                <ScrollView style={styles.billScroll} showsVerticalScrollIndicator={false}>
+                  {billLines.map((line) => (
+                    <View key={line.id} style={styles.billItemRow}>
+                      <Text style={styles.billItemQty}>{line.qty}×</Text>
+                      <View style={styles.billItemBody}>
+                        <Text style={styles.billItemName}>{line.name}</Text>
+                        {!!line.addons && <Text style={styles.billItemAddons}>+ {line.addons}</Text>}
+                      </View>
+                      <Text style={styles.billItemTotal}>{formatPrice(line.lineTotal)}</Text>
+                    </View>
+                  ))}
+                </ScrollView>
+
+                <View style={styles.billTotals}>
+                  <BillRow label="Subtotal" value={formatPrice(bill.subtotal)} />
+                  {bill.discount > 0 && <BillRow label="Discount" value={`- ${formatPrice(bill.discount)}`} />}
+                  {bill.service_charge > 0 && <BillRow label="Service charge" value={formatPrice(bill.service_charge)} />}
+                  {bill.tax_total > 0 && <BillRow label="Tax" value={formatPrice(bill.tax_total)} />}
+                  {bill.round_off !== 0 && <BillRow label="Round off" value={formatPrice(bill.round_off)} />}
+                  <View style={styles.billDivider} />
+                  <BillRow label="Total" value={formatPrice(bill.total)} bold />
+                </View>
+
+                {bill.items_added_since > 0 && bill.status !== 'paid' && (
+                  <View style={styles.billNotice}>
+                    <Ionicons name="information-circle" size={16} color="#9A5B00" />
+                    <Text style={styles.billNoticeText}>
+                      {bill.items_added_since} item
+                      {bill.items_added_since === 1 ? '' : 's'} added after this bill was printed.
+                      Total here is already up to date — re-generate for a fresh copy.
+                    </Text>
+                  </View>
+                )}
+
+                <View style={styles.billActions}>
+                  <Pressable style={styles.optionsCancel} onPress={() => setShowBill(false)}>
+                    <Text style={styles.optionsCancelText}>Close</Text>
+                  </Pressable>
+                  {bill.status !== 'paid' && (
+                    <Pressable style={styles.optionsConfirm} onPress={handleCreateBill}>
+                      <Ionicons name="refresh" size={16} color="#fff" />
+                      <Text style={styles.optionsConfirmText}>Re-generate</Text>
+                    </Pressable>
+                  )}
+                </View>
+              </>
+            )}
+          </Animated.View>
+        </View>
+      </Modal>
+
+    </View>
+  )
+}
+
+function BillRow({ label, value, bold }: { label: string; value: string; bold?: boolean }) {
+  return (
+    <View style={styles.billRow}>
+      <Text style={[styles.billRowLabel, bold && styles.billRowBold]}>{label}</Text>
+      <Text style={[styles.billRowValue, bold && styles.billRowBold]}>{value}</Text>
     </View>
   )
 }
@@ -735,6 +1095,138 @@ const styles = StyleSheet.create({
     borderRadius: 12,
   },
   billBtnText: { color: ORANGE, fontSize: 14, fontWeight: '700' },
+  cancelItemBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    marginTop: 6,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#fecaca',
+  },
+  cancelItemText: { color: '#ef4444', fontSize: 12, fontWeight: '700' },
+
+  // Customer on this table
+  customerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginHorizontal: 12,
+    marginTop: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#eee',
+    backgroundColor: '#fff',
+  },
+  customerName: { fontSize: 14, fontWeight: '700', color: '#1a1a1a' },
+  customerPhone: { fontSize: 12, color: '#999', marginTop: 1 },
+  customerAdd: { fontSize: 14, fontWeight: '600', color: '#999' },
+  custOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(16,18,22,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  custCard: {
+    width: '100%',
+    maxWidth: 420,
+    backgroundColor: '#fff',
+    borderRadius: 20,
+    padding: 20,
+    gap: 10,
+  },
+  custTitle: { fontSize: 17, fontWeight: '800', color: '#1a1a1a' },
+  custHint: { fontSize: 12, color: '#999', lineHeight: 17, marginBottom: 4 },
+  custInput: {
+    borderWidth: 1,
+    borderColor: '#e8e8e8',
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: 15,
+    color: '#1a1a1a',
+    backgroundColor: '#fafafa',
+  },
+  custError: { fontSize: 12, color: '#ef4444', fontWeight: '600' },
+  custActions: { flexDirection: 'row', gap: 10, marginTop: 6 },
+
+  // Bill banner + sheet
+  billBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginHorizontal: 12,
+    marginTop: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: ORANGE_BORDER,
+    backgroundColor: ORANGE_LIGHT,
+  },
+  billBannerPaid: { borderColor: '#bbf7d0', backgroundColor: '#f0fdf4' },
+  billBannerTitle: { fontSize: 14, fontWeight: '700', color: '#1a1a1a' },
+  billBannerWarn: { fontSize: 12, fontWeight: '600', color: '#9A5B00', marginTop: 2 },
+  billBannerTotal: { fontSize: 16, fontWeight: '800', color: '#1a1a1a' },
+  billSheetHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  billStatusPill: { backgroundColor: '#FFF0E8', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 },
+  billStatusText: { fontSize: 12, fontWeight: '800', color: ORANGE, letterSpacing: 0.5 },
+  // The overlay itself is transparent; the dim lives on billBackdrop so it can fade
+  // independently of the sheet's slide.
+  billOverlay: { flex: 1, justifyContent: 'flex-end' },
+  billBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(16,18,22,0.55)' },
+  billSheet: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingHorizontal: 20,
+    paddingTop: 18,
+    // Clears the tab bar and the home indicator beneath it.
+    paddingBottom: 34,
+    maxHeight: '85%',
+    shadowColor: '#000',
+    shadowOpacity: 0.2,
+    shadowRadius: 20,
+    shadowOffset: { width: 0, height: -6 },
+    elevation: 16,
+  },
+  billGrabber: {
+    alignSelf: 'center',
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#e0e0e0',
+    marginBottom: 14,
+  },
+  billScroll: { flexGrow: 0 },
+  billItemRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, paddingVertical: 7 },
+  billItemQty: { fontSize: 14, fontWeight: '800', color: ORANGE, minWidth: 28 },
+  billItemBody: { flex: 1, minWidth: 0 },
+  billItemName: { fontSize: 14, fontWeight: '600', color: '#1a1a1a' },
+  billItemAddons: { fontSize: 12, color: '#999', marginTop: 1 },
+  billItemTotal: { fontSize: 14, fontWeight: '600', color: '#1a1a1a', fontVariant: ['tabular-nums'] },
+  billTotals: { borderTopWidth: 1, borderTopColor: '#eee', paddingTop: 10, marginTop: 10 },
+  billActions: { flexDirection: 'row', gap: 10, marginTop: 16 },
+  billRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 7 },
+  billRowLabel: { fontSize: 14, color: '#666' },
+  billRowValue: { fontSize: 14, color: '#1a1a1a', fontWeight: '600' },
+  billRowBold: { fontSize: 17, fontWeight: '800', color: '#1a1a1a' },
+  billDivider: { height: 1, backgroundColor: '#eee', marginVertical: 6 },
+  billNotice: {
+    flexDirection: 'row',
+    gap: 8,
+    alignItems: 'flex-start',
+    backgroundColor: '#FFF4E0',
+    borderRadius: 10,
+    padding: 10,
+    marginTop: 12,
+  },
+  billNoticeText: { flex: 1, fontSize: 12, fontWeight: '600', color: '#9A5B00', lineHeight: 17 },
   leaveBtn: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -799,10 +1291,13 @@ const styles = StyleSheet.create({
   optionsCancelText: { fontSize: 15, fontWeight: '600', color: '#666' },
   optionsConfirm: {
     flex: 2,
+    flexDirection: 'row',
+    gap: 8,
     paddingVertical: 13,
     borderRadius: 12,
     backgroundColor: ORANGE,
     alignItems: 'center',
+    justifyContent: 'center',
   },
   optionsConfirmText: { fontSize: 15, fontWeight: '700', color: '#fff' },
   leaveBtnDisabled: { borderColor: '#eee', backgroundColor: '#fafafa' },

@@ -163,6 +163,43 @@
 }
 
 /* Bill */
+.billItem {
+  display: grid;
+  grid-template-columns: 2.2rem 1fr auto;
+  gap: 8px;
+  align-items: baseline;
+  padding: 5px 0;
+  font-size: 14px;
+}
+
+.billItemQty {
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.billItemName {
+  color: var(--text);
+  min-width: 0;
+}
+
+.billItemAddons {
+  color: var(--muted);
+  font-style: normal;
+  font-size: 12px;
+}
+
+.billItemTotal {
+  font-weight: 600;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.billSeparator {
+  height: 1px;
+  background: var(--border);
+  margin: 8px 0 4px;
+}
+
 .billSection {
   padding: 0 16px;
   margin-top: 8px;

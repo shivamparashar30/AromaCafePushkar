@@ -1,3 +1,5 @@
 {
-  "/table/[token]/page": "app/table/[token]/page.js"
+  "/_not-found/page": "app/_not-found/page.js",
+  "/table/[token]/page": "app/table/[token]/page.js",
+  "/page": "app/page.js"
 }

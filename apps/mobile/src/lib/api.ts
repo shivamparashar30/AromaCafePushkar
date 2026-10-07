@@ -300,93 +300,94 @@ export async function fetchOutletName(): Promise<string> {
   return (data ?? [])[0]?.name ?? ''
 }
 
-// ---------------------------------------------------------------------------
-// Kitchen display actions
-// ---------------------------------------------------------------------------
-
-/** Steps items back a stage — undo for an accidental Start or Ready. */
-export async function markItemsNew(itemIds: string[]) {
-  const { error } = await supabase.rpc('set_item_status', {
-    p_item_ids: itemIds,
-    p_status: 'ordered',
-  })
-  if (error) throw error
+export interface SessionBill {
+  id: string
+  bill_no: string | null
+  status: string
+  subtotal: number
+  discount: number
+  service_charge: number
+  tax_total: number
+  round_off: number
+  total: number
+  created_at: string
+  /** Items added to the table after this bill was raised. */
+  items_added_since: number
 }
-
-export type WasteReason =
-  | 'Burnt'
-  | 'Dropped'
-  | 'Wrong order'
-  | 'Customer returned'
-  | 'Expired'
-  | 'Other'
 
 /**
- * Records waste against one order item. The server marks it wasted, writes the audit
- * row, and — when reFire is set — puts a fresh line back on the board so the dish is
- * cooked again. Wasted lines are excluded from the bill.
+ * The session's current bill, whoever raised it — waiter, cashier, admin or the customer
+ * requesting it. The waiter app previously had no way to know a bill existed at all.
+ *
+ * Totals stay current by themselves: trg_order_items_refresh_bill recomputes an open bill
+ * whenever items change. `items_added_since` is reported anyway so the waiter can see that
+ * the table ordered more after the bill was printed.
  */
-export async function recordWaste(
-  orderItemId: string,
-  reason: WasteReason,
-  opts: { note?: string; reFire?: boolean; qty?: number } = {},
-) {
-  const { error } = await supabase.rpc('record_waste', {
-    p_order_item_id: orderItemId,
-    p_reason: reason,
-    p_note: opts.note ?? undefined,
-    p_refire: opts.reFire ?? false,
-    p_qty: opts.qty ?? undefined,
+export async function fetchSessionBill(sessionId: string): Promise<SessionBill | null> {
+  const { data, error } = await supabase
+    .from('bills')
+    .select('id, bill_no, status, subtotal, discount, service_charge, tax_total, round_off, total, created_at')
+    .eq('session_id', sessionId)
+    .neq('status', 'void')
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  if (error) throw error
+  if (!data) return null
+
+  const { count } = await supabase
+    .from('order_items')
+    .select('id, orders!inner(session_id)', { count: 'exact', head: true })
+    .eq('orders.session_id', sessionId)
+    .gt('created_at', data.created_at)
+    .not('status', 'in', '("cancelled","wasted")')
+
+  return { ...data, items_added_since: count ?? 0 }
+}
+
+/**
+ * Cancels a single order item.
+ *
+ * The server decides who may do this and when: a waiter can cancel only while the item is
+ * still 'ordered', because once the kitchen has started it the food exists and someone
+ * has to account for it. From 'cooking' onwards it takes a manager or admin, and a manager
+ * must give a reason. The UI mirrors that rule so a waiter is never offered an action the
+ * server will refuse.
+ */
+export async function cancelItem(itemId: string, reason?: string) {
+  const { error } = await supabase.rpc('cancel_item', {
+    p_item_id: itemId,
+    p_reason: reason?.trim() || undefined,
   })
   if (error) throw error
 }
 
-/** Recently served tickets, so a mistakenly-served KOT can be recalled to the board. */
-export async function fetchRecentlyServed(limitTo = 10): Promise<Order[]> {
-  const { data, error } = await supabase
-    .from('orders')
-    .select(`
-      id, kot_number, status, source, placed_by_name, created_at, is_priority,
-      table_session:table_sessions(status, table:tables(name)),
-      order_items(
-        id, qty, unit_price, notes, status, station,
-        menu_item:menu_items(name, food_type, tags),
-        variant:item_variants(name),
-        order_item_addons(addon:addons(name, price))
-      )
-    `)
-    .eq('status', 'served')
-    .order('updated_at', { ascending: false })
-    .limit(limitTo)
-
+/**
+ * Attaches a guest to a table session.
+ *
+ * A QR order captures name and phone up front, so that spend lands on the customer record.
+ * An order taken by a waiter had no such step, so the sale was anonymous and never counted
+ * toward the guest's visits or lifetime spend. Setting the phone fires the link trigger,
+ * which creates or updates the customer and repoints this session's bills at them.
+ */
+export async function setSessionCustomer(sessionId: string, name: string, phone: string) {
+  const { error } = await supabase.rpc('set_session_customer', {
+    p_session_id: sessionId,
+    p_name: name,
+    p_phone: phone,
+  })
   if (error) throw error
+}
 
-  return (data ?? [])
-    .filter((o: any) => o.table_session?.status === 'open')
-    .map((o: any) => ({
-      id: o.id,
-      kot_number: o.kot_number,
-      status: o.status,
-      source: o.source,
-      placed_by_name: o.placed_by_name ?? null,
-      created_at: o.created_at,
-      table_name: o.table_session?.table?.name ?? '',
-      is_priority: o.is_priority ?? false,
-      items: (o.order_items ?? []).map((i: any) => ({
-        id: i.id,
-        qty: i.qty,
-        unit_price: i.unit_price,
-        notes: i.notes,
-        status: i.status,
-        menu_item_name: i.menu_item?.name ?? '',
-        variant_name: i.variant?.name ?? null,
-        station: i.station,
-        food_type: i.menu_item?.food_type ?? null,
-        tags: i.menu_item?.tags ?? [],
-        addons: (i.order_item_addons ?? []).map((a: any) => ({
-          name: a.addon?.name ?? '',
-          price: a.addon?.price ?? 0,
-        })),
-      })),
-    }))
+/** Digits only, at most ten. A pasted +91 is dropped, but only when that leaves more than
+ *  ten digits — otherwise a genuine number like 9123456789 would be corrupted. */
+export function clampPhone(value: string) {
+  let digits = value.replace(/\D/g, '')
+  if (digits.length > 10 && digits.startsWith('91')) digits = digits.slice(2)
+  return digits.slice(0, 10)
+}
+
+export function isValidPhone(value: string) {
+  return /^[6-9]\d{9}$/.test(clampPhone(value))
 }

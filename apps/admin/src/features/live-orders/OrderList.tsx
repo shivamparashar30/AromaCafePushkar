@@ -64,7 +64,7 @@ export function OrderList({
                       Serve
                     </Button>
                   )}
-                  {canCancel && item.status !== 'cancelled' && item.status !== 'served' && (
+                  {canCancel && !['cancelled', 'served', 'wasted'].includes(item.status) && (
                     <Button
                       variant="link"
                       size="sm"

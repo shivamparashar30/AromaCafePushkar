@@ -24,6 +24,19 @@ function normalizePhone(value: string) {
   return digitsOnly(value).replace(/^91(?=\d{10}$)/, '')
 }
 
+/**
+ * What the field is allowed to hold: digits only, at most ten.
+ *
+ * A pasted "+91 98765 43210" is accepted by dropping the country code, but only when the
+ * result is longer than ten digits. Stripping a leading "91" unconditionally would corrupt
+ * a genuine number like 9123456789, whose first two digits happen to be 9 and 1.
+ */
+function clampPhoneInput(value: string) {
+  let digits = digitsOnly(value)
+  if (digits.length > 10 && digits.startsWith('91')) digits = digits.slice(2)
+  return digits.slice(0, 10)
+}
+
 function isValidPhone(value: string) {
   return /^[6-9]\d{9}$/.test(normalizePhone(value))
 }
@@ -32,9 +45,18 @@ function isValidName(value: string) {
   return value.trim().length >= 2
 }
 
+interface BillLine {
+  id: string
+  name: string
+  qty: number
+  addons: string
+  line_total: number
+}
+
 interface LiveBill {
   id: string
   bill_no: string | null
+  items: BillLine[]
   status: string
   subtotal: number
   discount: number
@@ -149,7 +171,7 @@ export default function TablePage() {
 
         const info = await refreshTable()
         if (info.customer_name) setCustomerName(info.customer_name)
-        if (info.customer_phone) setCustomerPhone(info.customer_phone)
+        if (info.customer_phone) setCustomerPhone(clampPhoneInput(info.customer_phone))
         if (info.menu.length > 0) setActiveCategory(info.menu[0].id)
 
         if (info.session_id) {
@@ -188,14 +210,12 @@ export default function TablePage() {
 
   // Read straight from the table — RLS scopes this to the caller's own session.
   const loadBill = useCallback(async (sessionId: string) => {
-    const { data } = await supabase
-      .from('bills')
-      .select('id, bill_no, status, subtotal, discount, service_charge, tax_total, total')
-      .eq('session_id', sessionId)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle()
-    setBill((data as LiveBill) ?? null)
+    // Through an RPC, not a direct select: bills_select_customer gates on
+    // customer_session_id(), which needs an anonymous auth.uid() this project does not
+    // currently issue. The SECURITY DEFINER function works either way, and is the same
+    // pattern resolve_qr and customer_fetch_orders already use.
+    const { data } = await supabase.rpc('customer_fetch_bill', { p_session_id: sessionId })
+    setBill((data as unknown as LiveBill) ?? null)
   }, [])
 
   // Live updates for this session: kitchen progress, the bill, and session closure.
@@ -473,6 +493,21 @@ export default function TablePage() {
             </h2>
             {bill.bill_no && <span className={styles.billNo}>#{bill.bill_no}</span>}
           </div>
+          {/* The guest should be able to check the bill against what they ordered,
+              rather than being shown a total to trust. */}
+          {(bill.items ?? []).map((line) => (
+            <div key={line.id} className={styles.billItem}>
+              <span className={styles.billItemQty}>{line.qty}×</span>
+              <span className={styles.billItemName}>
+                {line.name}
+                {line.addons ? <em className={styles.billItemAddons}> + {line.addons}</em> : null}
+              </span>
+              <span className={styles.billItemTotal}>{formatMoney(line.line_total)}</span>
+            </div>
+          ))}
+
+          <div className={styles.billSeparator} />
+
           <div className={styles.billRow}><span>Subtotal</span><span>{formatMoney(bill.subtotal)}</span></div>
           {bill.discount > 0 && (
             <div className={styles.billRow}><span>Discount</span><span>&minus;{formatMoney(bill.discount)}</span></div>
@@ -536,11 +571,11 @@ export default function TablePage() {
               className={styles.modalInput}
               placeholder="Mobile number"
               value={customerPhone}
-              onChange={(e) => { setCustomerPhone(e.target.value); setDetailsError(null) }}
+              onChange={(e) => { setCustomerPhone(clampPhoneInput(e.target.value)); setDetailsError(null) }}
               type="tel"
               inputMode="numeric"
               autoComplete="tel"
-              maxLength={15}
+              maxLength={10}
             />
             {detailsError && <p className={styles.modalError}>{detailsError}</p>}
             <div className={styles.modalButtons}>

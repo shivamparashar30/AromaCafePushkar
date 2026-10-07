@@ -22,7 +22,12 @@ const EVENT_CONFIG: Record<string, { icon: string; color: string; label: string 
   item_cancelled: { icon: 'close-circle', color: '#ef4444', label: 'Item cancelled' },
   order_waiting_too_long: { icon: 'time', color: '#ef4444', label: 'Order waiting' },
   booking_arriving: { icon: 'calendar', color: '#06b6d4', label: 'Booking arriving' },
+  kitchen_message: { icon: 'chatbubble-ellipses', color: ORANGE, label: 'Message from kitchen' },
 }
+
+// The kitchen took back a "ready" it marked by mistake. Red, because acting on the
+// earlier ready alert would put undercooked food on a table.
+const RECALLED_CONFIG = { icon: 'hand-left', color: '#ef4444', label: 'Not ready — don\'t serve' }
 
 export default function NotificationsScreen() {
   const { profile } = useAuth()
@@ -80,7 +85,9 @@ export default function NotificationsScreen() {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={ORANGE} />}
         contentContainerStyle={styles.list}
         renderItem={({ item }) => {
-          const config = EVENT_CONFIG[item.event] ?? { icon: 'alert-circle', color: '#999', label: item.event }
+          const config = item.payload?.recalled
+            ? RECALLED_CONFIG
+            : EVENT_CONFIG[item.event] ?? { icon: 'alert-circle', color: '#999', label: item.event }
           return (
             <View style={styles.card}>
               <View style={[styles.iconCircle, { backgroundColor: config.color + '18' }]}>
@@ -88,7 +95,15 @@ export default function NotificationsScreen() {
               </View>
               <View style={styles.content}>
                 <Text style={styles.event}>{config.label}</Text>
-                <Text style={styles.time}>{timeAgo(item.created_at)}</Text>
+                {item.payload?.message ? (
+                  <Text style={styles.message}>{item.payload.message}</Text>
+                ) : null}
+                <Text style={styles.time}>
+                  {item.payload?.kot_number ? `KOT #${item.payload.kot_number}` : ''}
+                  {item.payload?.table_name ? ` · ${item.payload.table_name}` : ''}
+                  {item.payload?.kot_number || item.payload?.table_name ? ' · ' : ''}
+                  {timeAgo(item.created_at)}
+                </Text>
               </View>
               <Pressable style={styles.dismissBtn} onPress={() => handleAcknowledge(item.id)}>
                 <Ionicons name="close" size={18} color="#999" />
@@ -131,6 +146,7 @@ const styles = StyleSheet.create({
   },
   content: { flex: 1 },
   event: { fontSize: 15, fontWeight: '600', color: '#1a1a1a' },
+  message: { fontSize: 14, color: '#1a1a1a', marginTop: 3 },
   time: { fontSize: 12, color: '#999', marginTop: 2 },
   dismissBtn: {
     width: 32,

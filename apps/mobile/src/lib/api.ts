@@ -1,5 +1,5 @@
 import { supabase } from './supabase'
-import type { MenuItem, Order, TableWithSession } from './types'
+import type { MenuItem, Order, StockItem, TableWithSession } from './types'
 
 // ── Waiter APIs ──
 
@@ -197,15 +197,22 @@ export async function callWaiterRpc(sessionId: string) {
 
 // ── Kitchen APIs ──
 
+/**
+ * A fully cancelled ticket would otherwise vanish the instant the last item is cancelled,
+ * and a cook halfway through it would never find out. It stays on the board, struck
+ * through, for this long so someone actually sees it.
+ */
+const CANCELLED_TICKET_GRACE_MS = 15 * 60 * 1000
+
 export async function fetchKitchenOrders(): Promise<Order[]> {
   const { data, error } = await supabase
     .from('orders')
     .select(`
-      id, kot_number, status, source, placed_by_name, created_at,
-      table_session:table_sessions(status, table:tables(name)),
+      id, kot_number, status, source, placed_by_name, created_at, updated_at,
+      table_session:table_sessions(status, table:tables(name), orders(id, created_at)),
       order_items(
-        id, qty, unit_price, notes, status, station,
-        menu_item:menu_items(name),
+        id, qty, unit_price, notes, status, station, cancel_reason,
+        menu_item:menu_items(name, prep_minutes),
         variant:item_variants(name),
         order_item_addons(addon:addons(name, price))
       )
@@ -213,10 +220,12 @@ export async function fetchKitchenOrders(): Promise<Order[]> {
     // 'ready' stays on the board: a ready ticket is not finished work, it is work
     // waiting to be picked up. It leaves when a waiter marks it served (or when the
     // bill is paid, which mark_paid settles automatically).
-    .in('status', ['placed', 'cooking', 'ready'])
+    .in('status', ['placed', 'cooking', 'ready', 'cancelled'])
     .order('created_at', { ascending: true })
 
   if (error) throw error
+
+  const cancelledCutoff = Date.now() - CANCELLED_TICKET_GRACE_MS
 
   return (data ?? [])
     // A closed session is done with, whatever its item statuses say. mark_paid settles
@@ -224,29 +233,41 @@ export async function fetchKitchenOrders(): Promise<Order[]> {
     // slips through (a session closed directly by a manager, or history predating that
     // fix) would otherwise sit on the board forever with no way to clear it.
     .filter((o) => (o.table_session as any)?.status === 'open')
-    .map((o) => ({
-    id: o.id,
-    kot_number: o.kot_number,
-    status: o.status,
-    source: o.source,
-    placed_by_name: (o as any).placed_by_name ?? null,
-    created_at: o.created_at,
-    table_name: (o.table_session as any)?.table?.name ?? '',
-    items: (o.order_items ?? []).map((i: any) => ({
-      id: i.id,
-      qty: i.qty,
-      unit_price: i.unit_price,
-      notes: i.notes,
-      status: i.status,
-      menu_item_name: i.menu_item?.name ?? '',
-      variant_name: i.variant?.name ?? null,
-      station: i.station,
-      addons: (i.order_item_addons ?? []).map((a: any) => ({
-        name: a.addon?.name ?? '',
-        price: a.addon?.price ?? 0,
-      })),
-    })),
-  }))
+    .filter((o) => o.status !== 'cancelled' || new Date((o as any).updated_at).getTime() >= cancelledCutoff)
+    .map((o) => {
+      // Position of this KOT among the table's rounds, so an add-on order reads as one
+      // ("Table 5, round 2") rather than as a new table sitting down.
+      const sessionOrders: { id: string; created_at: string }[] = (o.table_session as any)?.orders ?? []
+      const seq = sessionOrders.filter((s) => s.created_at <= o.created_at).length
+
+      return {
+        id: o.id,
+        kot_number: o.kot_number,
+        status: o.status,
+        source: o.source,
+        placed_by_name: (o as any).placed_by_name ?? null,
+        created_at: o.created_at,
+        updated_at: (o as any).updated_at,
+        table_name: (o.table_session as any)?.table?.name ?? '',
+        session_kot_seq: Math.max(seq, 1),
+        items: (o.order_items ?? []).map((i: any) => ({
+          id: i.id,
+          qty: i.qty,
+          unit_price: i.unit_price,
+          notes: i.notes,
+          status: i.status,
+          menu_item_name: i.menu_item?.name ?? '',
+          variant_name: i.variant?.name ?? null,
+          station: i.station,
+          cancel_reason: i.cancel_reason ?? null,
+          prep_minutes: i.menu_item?.prep_minutes ?? undefined,
+          addons: (i.order_item_addons ?? []).map((a: any) => ({
+            name: a.addon?.name ?? '',
+            price: a.addon?.price ?? 0,
+          })),
+        })),
+      }
+    })
 }
 
 export async function markItemsCooking(itemIds: string[]) {
@@ -261,6 +282,60 @@ export async function markItemsReady(itemIds: string[]) {
   const { error } = await supabase.rpc('set_item_status', {
     p_item_ids: itemIds,
     p_status: 'ready',
+  })
+  if (error) throw error
+}
+
+/**
+ * Takes back a "ready" marked by mistake: items return to cooking, the waiter's ready alert
+ * is withdrawn and they are told not to serve. The server refuses items already served.
+ */
+export async function recallItems(itemIds: string[]) {
+  const { error } = await supabase.rpc('kitchen_recall_items', { p_item_ids: itemIds })
+  if (error) throw error
+}
+
+/** Every active dish with its stock flag, for the kitchen's Stock tab. */
+export async function fetchStockList(): Promise<StockItem[]> {
+  const { data, error } = await supabase
+    .from('menu_items')
+    .select('id, name, food_type, station, in_stock, sort_order, category:categories(name, sort_order)')
+    .eq('is_active', true)
+    .order('name')
+
+  if (error) throw error
+
+  return (data ?? [])
+    .map((i: any) => ({
+      id: i.id,
+      name: i.name,
+      food_type: i.food_type,
+      station: i.station,
+      in_stock: i.in_stock,
+      category_name: i.category?.name ?? 'Other',
+      _catSort: i.category?.sort_order ?? 0,
+    }))
+    .sort((a, b) => a._catSort - b._catSort || a.category_name.localeCompare(b.category_name))
+    .map(({ _catSort, ...rest }) => rest)
+}
+
+/**
+ * Flips a dish in or out of stock. Goes through an RPC because the kitchen may touch only
+ * this one column of menu_items; place_order refuses out-of-stock items server-side.
+ */
+export async function setItemStock(itemId: string, inStock: boolean) {
+  const { error } = await supabase.rpc('kitchen_set_item_stock', {
+    p_item_id: itemId,
+    p_in_stock: inStock,
+  })
+  if (error) throw error
+}
+
+/** Sends a short note about a ticket to that table's waiter (or all staff if unassigned). */
+export async function messageWaiter(orderId: string, message: string) {
+  const { error } = await supabase.rpc('kitchen_message_waiter', {
+    p_order_id: orderId,
+    p_message: message,
   })
   if (error) throw error
 }

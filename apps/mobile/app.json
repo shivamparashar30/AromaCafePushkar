@@ -21,7 +21,8 @@
         {
           "cameraPermission": "Allow Aroma Cafe to use your camera to scan table QR codes."
         }
-      ]
+      ],
+      "expo-audio"
     ],
     "experiments": {
       "typedRoutes": true

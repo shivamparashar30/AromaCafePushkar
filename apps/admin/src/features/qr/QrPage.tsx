@@ -21,14 +21,16 @@ import { floorsQuery, FLOORS_QUERY_KEY, regenerateTableQr, type FloorWithTables 
 
 
 
-function orderingUrl(domain: string, token: string): string {
-  return `https://order.${domain}/t/${token}`
+const CUSTOMER_APP_URL = import.meta.env.VITE_CUSTOMER_APP_URL
+
+function orderingUrl(baseUrl: string, token: string): string {
+  return `${baseUrl.replace(/\/+$/, '')}/table/${token}`
 }
 
 export function QrPage() {
   const queryClient = useQueryClient()
   const { data: floors, isLoading } = useQuery({ ...floorsQuery({}) })
-  const [domain, setDomain] = useState('aromacafepushkar.example')
+  const [baseUrl, setBaseUrl] = useState(CUSTOMER_APP_URL)
   const printRef = useRef<HTMLDivElement>(null)
 
   const regenerateMutation = useMutation({
@@ -74,19 +76,32 @@ export function QrPage() {
         </div>
         <div className="flex flex-wrap items-end gap-2">
           <div className="space-y-1">
-            <Label htmlFor="domain" className="text-xs">
-              Ordering domain
+            <Label htmlFor="baseUrl" className="text-xs">
+              Ordering base URL
             </Label>
-            <Input id="domain" className="w-full sm:w-56" value={domain} onChange={(e) => setDomain(e.target.value)} />
+            <Input
+              id="baseUrl"
+              className="w-full sm:w-72"
+              placeholder="https://order.example.com"
+              value={baseUrl}
+              onChange={(e) => setBaseUrl(e.target.value)}
+            />
           </div>
           <Button className="w-full sm:w-auto" onClick={printAll}>Print all (PDF sheet)</Button>
         </div>
       </div>
 
+      {!baseUrl.trim() && (
+        <p className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive print:hidden">
+          Set an ordering base URL before printing — without it the codes encode a relative link and
+          will not scan.
+        </p>
+      )}
+
       <div id="qr-print-sheet" ref={printRef} className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
         {floors.flatMap((floor: FloorWithTables) =>
           floor.tables.map((t) => {
-            const url = orderingUrl(domain, t.qr_token)
+            const url = orderingUrl(baseUrl, t.qr_token)
             return (
               <Card key={t.id} className="break-inside-avoid">
                 <CardHeader className="pb-2">

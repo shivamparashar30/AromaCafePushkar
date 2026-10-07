@@ -432,7 +432,7 @@ export default function TablePage() {
       {/* Menu items */}
       <main className={styles.menuList}>
         {activeItems.map((item) => (
-          <div key={item.id} className={styles.menuCard}>
+          <div key={item.id} className={`${styles.menuCard} ${item.in_stock ? '' : styles.menuCardOut}`}>
             <div className={styles.menuInfo}>
               <span className={`${styles.foodDot} ${item.food_type === 'veg' ? styles.veg : styles.nonVeg}`} />
               <div>
@@ -441,7 +441,13 @@ export default function TablePage() {
                 <p className={styles.menuPrice}>{formatMoney(item.price)}</p>
               </div>
             </div>
-            <button className={styles.addBtn} onClick={() => addToCart(item)}>Add</button>
+            {/* The kitchen marks dishes out of stock mid-service; place_order would refuse
+                one anyway, so say so up front instead of failing at checkout. */}
+            {item.in_stock ? (
+              <button className={styles.addBtn} onClick={() => addToCart(item)}>Add</button>
+            ) : (
+              <span className={styles.soldOut}>Sold out</span>
+            )}
           </div>
         ))}
       </main>

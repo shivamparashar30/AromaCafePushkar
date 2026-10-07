@@ -1,12 +1,16 @@
 import { Redirect, Tabs } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Ionicons } from '@expo/vector-icons'
+import { useKeepAwake } from 'expo-keep-awake'
 import { useAuth } from '../../src/context/AuthContext'
 
 const ORANGE = '#E8713A'
 const ORANGE_LIGHT = '#FFF7F2'
 
 export default function KitchenLayout() {
+  // A kitchen display that dims mid-rush is a missed ticket. Held for the whole kitchen
+  // app (board, stock, account) and released on sign-out when this layout unmounts.
+  useKeepAwake()
   const { profile } = useAuth()
   const insets = useSafeAreaInsets()
   if (!profile) return <Redirect href="/login" />
@@ -57,6 +61,16 @@ export default function KitchenLayout() {
           headerTitle: 'Kitchen',
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="flame-outline" size={size} color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="stock"
+        options={{
+          title: 'Stock',
+          headerTitle: 'Stock',
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="cube-outline" size={size} color={color} />
           ),
         }}
       />

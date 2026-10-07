@@ -102,6 +102,21 @@
 .menuDesc { font-size: 12px; color: var(--muted); margin-top: 2px; }
 .menuPrice { font-size: 14px; font-weight: 600; margin-top: 4px; }
 
+.menuCardOut .menuName,
+.menuCardOut .menuPrice {
+  opacity: 0.5;
+}
+
+.soldOut {
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: 1px solid currentColor;
+  opacity: 0.55;
+  font-size: 12px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
 .addBtn {
   padding: 6px 16px;
   border-radius: 6px;

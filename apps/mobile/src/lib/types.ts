@@ -19,6 +19,10 @@ export interface OrderItem {
   variant_name: string | null
   addons: { name: string; price: number }[]
   station: string | null
+  /** Set only by the kitchen fetch: why a cancelled item was cancelled. */
+  cancel_reason?: string | null
+  /** Set only by the kitchen fetch: the dish's expected prep time, for ticket timers. */
+  prep_minutes?: number
 }
 
 export interface Order {
@@ -30,6 +34,19 @@ export interface Order {
   created_at: string
   table_name: string
   items: OrderItem[]
+  /** Set only by the kitchen fetch: 1 for a table's first KOT, 2+ for add-on rounds. */
+  session_kot_seq?: number
+  /** Set only by the kitchen fetch: when the order last changed (e.g. was cancelled). */
+  updated_at?: string
+}
+
+export interface StockItem {
+  id: string
+  name: string
+  category_name: string
+  food_type: string
+  station: string | null
+  in_stock: boolean
 }
 
 export interface MenuItem {
